@@ -27,7 +27,8 @@ export async function redirectToAuthCodeFlow() {
   params.append("client_id", CLIENT_ID);
   params.append("response_type", "code");
   params.append("redirect_uri", REDIRECT_URI);
-  params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played playlist-read-private playlist-read-collaborative");
+  // 补全所有音乐库与歌单读取权限
+  params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played playlist-read-private playlist-read-collaborative user-library-read");
   params.append("code_challenge_method", "S256");
   params.append("code_challenge", challenge);
 
@@ -54,7 +55,6 @@ export async function getAccessToken(code) {
   return data.access_token;
 }
 
-// 仅在 401 真正过期时才清除 Token，403 不清除！
 function handleTokenExpiration(res) {
   if (res.status === 401) {
     localStorage.removeItem('spotify_token');
@@ -82,16 +82,24 @@ export async function fetchTopArtists(token, timeRange = 'medium_term') {
   return res.json();
 }
 
+// 获取已点赞的歌曲 (Liked Songs)
+export async function fetchLikedSongs(token) {
+  const res = await fetch("https://api.spotify.com/v1/me/tracks?limit=50", { headers: { Authorization: `Bearer ${token}` } });
+  if (handleTokenExpiration(res)) return { items: [] };
+  return res.json();
+}
+
 export async function fetchUserPlaylists(token) {
   const res = await fetch("https://api.spotify.com/v1/me/playlists?limit=50", { headers: { Authorization: `Bearer ${token}` } });
   if (handleTokenExpiration(res)) return { items: [] };
   return res.json();
 }
 
-// 安全的歌单抓取函数 (绝不会因为 403 强行登出用户)
+// 专为个人歌单优化的多重抓取接口 (带 market 地区解封参数)
 export async function fetchPlaylistTracks(token, playlistId) {
   try {
-    let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, { 
+    // 方式 1：带 market=from_token 获取
+    let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}?market=from_token`, { 
       headers: { Authorization: `Bearer ${token}` } 
     });
     
@@ -99,11 +107,7 @@ export async function fetchPlaylistTracks(token, playlistId) {
       localStorage.removeItem('spotify_token');
       localStorage.removeItem('verifier');
       window.location.reload();
-      return { items: [], error: 'EXPIRED' };
-    }
-
-    if (res.status === 403) {
-      return { items: [], error: 'FORBIDDEN' };
+      return { items: [] };
     }
 
     let data = await res.json();
@@ -111,18 +115,16 @@ export async function fetchPlaylistTracks(token, playlistId) {
       return { items: data.tracks.items };
     }
 
-    // 备用子路径
-    res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, { 
+    // 方式 2：备用子路径
+    res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50&market=from_token`, { 
       headers: { Authorization: `Bearer ${token}` } 
     });
+    
     if (res.status === 401) {
       localStorage.removeItem('spotify_token');
       localStorage.removeItem('verifier');
       window.location.reload();
-      return { items: [], error: 'EXPIRED' };
-    }
-    if (res.status === 403) {
-      return { items: [], error: 'FORBIDDEN' };
+      return { items: [] };
     }
 
     data = await res.json();
