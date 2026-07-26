@@ -34,7 +34,7 @@ export async function redirectToAuthCodeFlow() {
   params.append("client_id", CLIENT_ID);
   params.append("response_type", "code");
   params.append("redirect_uri", getRedirectUri());
-  params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played user-library-read");
+  params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played");
   params.append("code_challenge_method", "S256");
   params.append("code_challenge", challenge);
 
@@ -90,25 +90,6 @@ export async function fetchTopArtists(token, timeRange = 'medium_term') {
   return res.json();
 }
 
-export async function fetchLikedSongs(token) {
-  const res = await fetch("https://api.spotify.com/v1/me/tracks?limit=50", { headers: { Authorization: `Bearer ${token}` } });
-  if (handleTokenExpiration(res)) return { items: [] };
-  return res.json();
-}
-
-export async function fetchArtistsByIds(token, artistIds) {
-  if (!artistIds || artistIds.length === 0) return { artists: [] };
-  const idsParam = artistIds.slice(0, 50).join(',');
-  const res = await fetch(`https://api.spotify.com/v1/artists?ids=${idsParam}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (handleTokenExpiration(res)) return { artists: [] };
-  return res.json();
-}
-
-// 防崩溃兼容导出（防止旧版 App.jsx 找不到导出而编译报错）
-export async function fetchUserPlaylists() {
-  return { items: [] };
-}
-
-export async function fetchPlaylistTracks() {
-  return { items: [] };
-}
+// 兼容性防崩溃导出
+export async function fetchLikedSongs() { return { items: [] }; }
+export async function fetchArtistsByIds() { return { artists: [] }; }
