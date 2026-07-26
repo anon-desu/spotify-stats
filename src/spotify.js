@@ -1,5 +1,4 @@
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-// 自动获取当前访问的域名，无需手动配置回调网址
 const REDIRECT_URI = window.location.origin;
 
 function generateCodeVerifier(length) {
@@ -60,17 +59,13 @@ export async function fetchProfile(token) {
   return res.json();
 }
 
+// 调取 50 首数据以获取准确的百分比统计
 export async function fetchTopTracks(token, timeRange = 'medium_term') {
-  const res = await fetch(`https://api.spotify.com/v1/me/top/tracks?time_range=${timeRange}&limit=10`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`https://api.spotify.com/v1/me/top/tracks?time_range=${timeRange}&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
   return res.json();
 }
 
 export async function fetchTopArtists(token, timeRange = 'medium_term') {
-  const res = await fetch(`https://api.spotify.com/v1/me/top/artists?time_range=${timeRange}&limit=10`, { headers: { Authorization: `Bearer ${token}` } });
-  return res.json();
-}
-
-export async function fetchRecentlyPlayed(token) {
-  const res = await fetch("https://api.spotify.com/v1/me/player/recently-played?limit=20", { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`https://api.spotify.com/v1/me/top/artists?time_range=${timeRange}&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
   return res.json();
 }
