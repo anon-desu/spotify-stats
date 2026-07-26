@@ -54,8 +54,9 @@ export async function getAccessToken(code) {
   return data.access_token;
 }
 
+// 仅在 401 真正过期时才清除 Token，403 不清除！
 function handleTokenExpiration(res) {
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('verifier');
     return true;
@@ -87,19 +88,22 @@ export async function fetchUserPlaylists(token) {
   return res.json();
 }
 
-// 高兼容性歌单获取端点
+// 安全的歌单抓取函数 (绝不会因为 403 强行登出用户)
 export async function fetchPlaylistTracks(token, playlistId) {
   try {
-    // 方式 1：直连获取全量 Playlist 对象（最稳定）
     let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, { 
       headers: { Authorization: `Bearer ${token}` } 
     });
     
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       localStorage.removeItem('spotify_token');
       localStorage.removeItem('verifier');
       window.location.reload();
-      return { items: [] };
+      return { items: [], error: 'EXPIRED' };
+    }
+
+    if (res.status === 403) {
+      return { items: [], error: 'FORBIDDEN' };
     }
 
     let data = await res.json();
@@ -107,16 +111,20 @@ export async function fetchPlaylistTracks(token, playlistId) {
       return { items: data.tracks.items };
     }
 
-    // 方式 2：子路径兜底
+    // 备用子路径
     res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, { 
       headers: { Authorization: `Bearer ${token}` } 
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       localStorage.removeItem('spotify_token');
       localStorage.removeItem('verifier');
       window.location.reload();
-      return { items: [] };
+      return { items: [], error: 'EXPIRED' };
     }
+    if (res.status === 403) {
+      return { items: [], error: 'FORBIDDEN' };
+    }
+
     data = await res.json();
     return data || { items: [] };
 
