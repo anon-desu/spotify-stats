@@ -1,5 +1,12 @@
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-const REDIRECT_URI = window.location.origin;
+
+// 安全获取重定向地址（防止 Cloudflare 构建阶段找不到 window 对象而报错）
+const getRedirectUri = () => {
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return '';
+};
 
 function generateCodeVerifier(length) {
   let text = '';
@@ -26,7 +33,7 @@ export async function redirectToAuthCodeFlow() {
   const params = new URLSearchParams();
   params.append("client_id", CLIENT_ID);
   params.append("response_type", "code");
-  params.append("redirect_uri", REDIRECT_URI);
+  params.append("redirect_uri", getRedirectUri());
   params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played user-library-read");
   params.append("code_challenge_method", "S256");
   params.append("code_challenge", challenge);
@@ -41,7 +48,7 @@ export async function getAccessToken(code) {
   params.append("client_id", CLIENT_ID);
   params.append("grant_type", "authorization_code");
   params.append("code", code);
-  params.append("redirect_uri", REDIRECT_URI);
+  params.append("redirect_uri", getRedirectUri());
   params.append("code_verifier", verifier);
 
   const result = await fetch("https://accounts.spotify.com/api/token", {
@@ -56,8 +63,10 @@ export async function getAccessToken(code) {
 
 function handleTokenExpiration(res) {
   if (res.status === 401) {
-    localStorage.removeItem('spotify_token');
-    localStorage.removeItem('verifier');
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('spotify_token');
+      localStorage.removeItem('verifier');
+    }
     return true;
   }
   return false;
@@ -93,4 +102,4 @@ export async function fetchArtistsByIds(token, artistIds) {
   const res = await fetch(`https://api.spotify.com/v1/artists?ids=${idsParam}`, { headers: { Authorization: `Bearer ${token}` } });
   if (handleTokenExpiration(res)) return { artists: [] };
   return res.json();
-}
+    }
