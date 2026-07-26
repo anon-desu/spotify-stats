@@ -27,7 +27,6 @@ export async function redirectToAuthCodeFlow() {
   params.append("client_id", CLIENT_ID);
   params.append("response_type", "code");
   params.append("redirect_uri", REDIRECT_URI);
-  // 完整歌单读取权限
   params.append("scope", "user-read-private user-read-email user-top-read user-read-recently-played playlist-read-private playlist-read-collaborative");
   params.append("code_challenge_method", "S256");
   params.append("code_challenge", challenge);
@@ -55,7 +54,6 @@ export async function getAccessToken(code) {
   return data.access_token;
 }
 
-// 同时检测 401 (过期) 与 403 (缺少歌单权限)
 function handleTokenExpiration(res) {
   if (res.status === 401 || res.status === 403) {
     localStorage.removeItem('spotify_token');
@@ -89,10 +87,39 @@ export async function fetchUserPlaylists(token) {
   return res.json();
 }
 
+// 适配 Spotify 新版 /items API 接口路径
 export async function fetchPlaylistTracks(token, playlistId) {
-  const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, { headers: { Authorization: `Bearer ${token}` } });
-  if (handleTokenExpiration(res)) return { items: [] };
-  return res.json();
+  try {
+    // 优先尝试新版 /items 接口
+    let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items?limit=50`, { 
+      headers: { Authorization: `Bearer ${token}` } 
+    });
+    
+    if (res.status === 401) {
+      localStorage.removeItem('spotify_token');
+      window.location.reload();
+      return { items: [] };
+    }
+
+    // 备用兜底降级全量路径
+    if (!res.ok) {
+      res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      if (res.status === 401) {
+        localStorage.removeItem('spotify_token');
+        window.location.reload();
+        return { items: [] };
+      }
+      const data = await res.json();
+      return data.tracks || { items: [] };
+    }
+
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return { items: [] };
+  }
 }
 
 export async function fetchArtistsByIds(token, artistIds) {
