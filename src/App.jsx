@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { redirectToAuthCodeFlow, getAccessToken, fetchProfile, fetchTopTracks, fetchTopArtists } from './spotify';
-import { Music, Mic, LogOut, Sparkles, Clock, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon } from 'lucide-react';
+import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, RefreshCw, Github, User } from 'lucide-react';
 
-// --- 1. 流派专属圆环图组件 (仅用于流派维度) ---
+// 1. 流派分布圆环图组件
 function GenreDonutChart({ data, primaryGenre }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
 
@@ -25,7 +25,6 @@ function GenreDonutChart({ data, primaryGenre }) {
         <span className="text-[11px] text-gray-400 font-mono">共 {data.length} 种流派</span>
       </div>
 
-      {/* 圆环渲染 */}
       <div className="relative w-48 h-48 flex items-center justify-center my-3">
         <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 overflow-visible">
           <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#262626" strokeWidth="10" />
@@ -63,7 +62,6 @@ function GenreDonutChart({ data, primaryGenre }) {
           })}
         </svg>
 
-        {/* 中心重置区域 */}
         <div 
           onClick={() => setHoveredIdx(null)}
           className="absolute inset-8 rounded-full flex flex-col items-center justify-center text-center px-2 cursor-pointer select-none"
@@ -84,7 +82,6 @@ function GenreDonutChart({ data, primaryGenre }) {
         </div>
       </div>
 
-      {/* 图例 */}
       <div className="w-full space-y-2 mt-2 pt-3 border-t border-[#333333]">
         {data.map((item, idx) => {
           const pct = ((item.value / total) * 100).toFixed(1);
@@ -121,10 +118,24 @@ export default function App() {
   const [timeRange, setTimeRange] = useState('medium_term');
   const [loading, setLoading] = useState(false);
 
-  // 展开控制与搜索词状态
+  // 状态控制
   const [expandTopTracks, setExpandTopTracks] = useState(false);
   const [trackSearch, setTrackSearch] = useState('');
   const [artistSearch, setArtistSearch] = useState('');
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const userMenuRef = useRef(null);
+
+  // 点击外部收起用户二级菜单
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const args = new URLSearchParams(window.location.search);
@@ -151,9 +162,9 @@ export default function App() {
           fetchTopTracks(token, timeRange),
           fetchTopArtists(token, timeRange)
         ]);
-        setProfile(profData);
-        setTopTracks(tracksData.items || []);
-        setTopArtists(artistsData.items || []);
+        if (profData) setProfile(profData);
+        setTopTracks(tracksData?.items || []);
+        setTopArtists(artistsData?.items || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -167,9 +178,10 @@ export default function App() {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('verifier');
     setToken(null);
+    setShowUserMenu(false);
   };
 
-  // --- 1. 计算歌曲权重，严禁出现 0% 数据 ---
+  // 1. 处理歌曲权重 (过滤脏数据)
   const totalTrackWeight = topTracks.reduce((acc, _, idx) => acc + (50 - idx), 0) || 1;
   const processedTracks = topTracks.map((track, idx) => {
     const weight = 50 - idx;
@@ -181,12 +193,11 @@ export default function App() {
       pctNumber,
       pctStr: pctNumber < 0.1 ? '<0.1%' : `${pctNumber.toFixed(1)}%`
     };
-  }).filter(t => t.pctNumber > 0.05); // 彻底过滤掉 0% 脏数据！
+  }).filter(t => t.pctNumber > 0.05);
 
-  // Top 5 进度条基准最大值
   const maxTrackWeight = processedTracks[0]?.weight || 50;
 
-  // --- 2. 处理流派分布数据（仅收敛 5-7 个流派用于圆环图） ---
+  // 2. 处理流派分布数据
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -198,7 +209,7 @@ export default function App() {
   const totalGenreCount = Object.values(genreCounts).reduce((a, b) => a + b, 0) || 1;
   const sortedGenres = Object.entries(genreCounts)
     .map(([label, value]) => ({ label, value, pct: (value / totalGenreCount) * 100 }))
-    .filter(g => g.pct > 0.1) // 强行过滤 0% 数据
+    .filter(g => g.pct > 0.1)
     .sort((a, b) => b.value - a.value);
 
   const GENRE_COLORS = ['#1DB954', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#06B6D4', '#374151'];
@@ -219,17 +230,14 @@ export default function App() {
     }] : [])
   ];
 
-  // 估算听歌总时长（小时）
-  const totalEstimatedHours = Math.round((topTracks.reduce((acc, t) => acc + (t.duration_ms || 0), 0) * 1.5) / 1000 / 3600) || 128;
-
-  // 过滤后的歌曲与歌手列表 (实时搜索)
+  // 过滤后的列表
   const filteredTracks = processedTracks.filter(t => 
-    t.name.toLowerCase().includes(trackSearch.toLowerCase()) ||
-    t.artists.some(a => a.name.toLowerCase().includes(trackSearch.toLowerCase()))
+    (t.name || '').toLowerCase().includes(trackSearch.toLowerCase()) ||
+    t.artists?.some(a => (a.name || '').toLowerCase().includes(trackSearch.toLowerCase()))
   );
 
   const filteredArtists = topArtists.filter(a => 
-    a.name.toLowerCase().includes(artistSearch.toLowerCase())
+    (a.name || '').toLowerCase().includes(artistSearch.toLowerCase())
   );
 
   if (!token) {
@@ -256,59 +264,90 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#121212] text-white p-4 md:p-8 max-w-6xl mx-auto pb-16 selection:bg-[#1DB954] selection:text-black">
-      {/* 1. 顶部 Header 与分段选择器 */}
+      {/* 1. 顶部 Header 与二级菜单、GitHub Logo */}
       {profile && (
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#333333]">
-          <div className="flex items-center space-x-3.5">
-            {profile.images?.[0]?.url && (
-              <img src={profile.images[0].url} alt="" className="w-12 h-12 rounded-full border-2 border-[#1DB954] object-cover shadow-md" />
-            )}
-            <div>
-              <h1 className="text-xl font-bold text-white flex items-center gap-2">
-                {profile.display_name}
-              </h1>
-              <p className="text-gray-400 text-xs">Spotify 听歌数据看板</p>
+          {/* 头像 + 二级菜单触发器 */}
+          <div className="relative" ref={userMenuRef}>
+            <div 
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center space-x-3 bg-[#181818] hover:bg-[#222222] border border-[#333333] px-3.5 py-1.5 rounded-full cursor-pointer transition shadow-md select-none group"
+            >
+              {profile.images?.[0]?.url ? (
+                <img src={profile.images[0].url} alt="" className="w-8 h-8 rounded-full border border-[#1DB954] object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-[#1DB954]/20 border border-[#1DB954] flex items-center justify-center text-[#1DB954]">
+                  <User size={16} />
+                </div>
+              )}
+              <div className="pr-1">
+                <h1 className="text-xs font-bold text-white flex items-center gap-1 group-hover:text-[#1DB954] transition">
+                  {profile.display_name}
+                  <ChevronDown size={14} className={`transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
+                </h1>
+                <p className="text-[10px] text-gray-400">Spotify 听歌看板</p>
+              </div>
             </div>
+
+            {/* 点击头像展开二级菜单 */}
+            {showUserMenu && (
+              <div className="absolute left-0 mt-2 w-52 bg-[#181818] border border-[#333333] rounded-2xl shadow-2xl p-2.5 z-50">
+                <div className="p-2 border-b border-[#2a2a2a] mb-1">
+                  <p className="text-xs font-bold text-white truncate">{profile.display_name}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 truncate">{profile.email || 'Spotify 已授权账号'}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center space-x-2 w-full text-left text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2 rounded-xl transition"
+                >
+                  <LogOut size={14} />
+                  <span>退出当前账号</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* 胶囊状分段选择器 */}
-          <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333] self-stretch sm:self-auto">
-            {[
-              { key: 'short_term', label: '近 4 周' },
-              { key: 'medium_term', label: '近 6 个月' },
-              { key: 'long_term', label: '近 1 年' }
-            ].map((item) => (
-              <button
-                key={item.key}
-                onClick={() => setTimeRange(item.key)}
-                className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
-                  timeRange === item.key 
-                    ? 'bg-[#1DB954] text-black shadow-md shadow-[#1DB954]/20' 
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+          {/* 右侧：分段选择器与 GitHub Logo */}
+          <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333] flex-1 sm:flex-initial">
+              {[
+                { key: 'short_term', label: '近 4 周' },
+                { key: 'medium_term', label: '近 6 个月' },
+                { key: 'long_term', label: '近 1 年' }
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setTimeRange(item.key)}
+                  className={`flex-1 sm:flex-none px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                    timeRange === item.key 
+                      ? 'bg-[#1DB954] text-black shadow-md shadow-[#1DB954]/20' 
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* GitHub 图标按钮 */}
+            <a
+              href="https://github.com/anon-desu/spotify-stats"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2.5 bg-[#181818] hover:bg-[#222222] border border-[#333333] text-gray-300 hover:text-white rounded-full transition-all duration-200 flex items-center justify-center shadow-md hover:scale-105 shrink-0"
+              title="GitHub 源代码"
+            >
+              <Github size={18} />
+            </a>
           </div>
         </header>
       )}
 
-      {/* 2. 核心 KPI 概览区（3 列卡片布局） */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 my-6">
-        <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors">
+      {/* 2. 核心 KPI 概览区（去除估算时长卡片，保留精简 2 卡片布局） */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 my-6">
+        <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors shadow-lg">
           <div>
-            <p className="text-gray-400 text-xs font-medium">估算听歌总时长</p>
-            <p className="text-2xl font-black text-white mt-1 font-mono tracking-tight">{totalEstimatedHours.toLocaleString()} <span className="text-sm font-normal text-gray-400">小时</span></p>
-          </div>
-          <div className="p-3 bg-[#1DB954]/10 rounded-xl text-[#1DB954] border border-[#1DB954]/20">
-            <Clock size={22} />
-          </div>
-        </div>
-
-        <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors">
-          <div>
-            <p className="text-gray-400 text-xs font-medium">分析去重曲目数</p>
+            <p className="text-gray-400 text-xs font-medium">精选热听曲目</p>
             <p className="text-2xl font-black text-white mt-1 font-mono tracking-tight">{topTracks.length} <span className="text-sm font-normal text-gray-400">首</span></p>
           </div>
           <div className="p-3 bg-[#1DB954]/10 rounded-xl text-[#1DB954] border border-[#1DB954]/20">
@@ -316,10 +355,10 @@ export default function App() {
           </div>
         </div>
 
-        <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors">
+        <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors shadow-lg">
           <div>
             <p className="text-gray-400 text-xs font-medium">核心偏好流派</p>
-            <p className="text-lg font-bold text-[#1DB954] mt-1 truncate max-w-[160px]">{sortedGenres[0]?.label || 'J-Pop / ACG'}</p>
+            <p className="text-lg font-bold text-[#1DB954] mt-1 truncate max-w-[180px] sm:max-w-[260px]">{sortedGenres[0]?.label || 'J-Pop / ACG'}</p>
           </div>
           <div className="p-3 bg-[#1DB954]/10 rounded-xl text-[#1DB954] border border-[#1DB954]/20">
             <Heart size={22} />
@@ -327,13 +366,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. 图表分析区（2 列响应式布局） */}
+      {/* 3. 图表分析区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
-        {/* 卡片 1：流派分布图（圆环图仅用于流派维度） */}
         <GenreDonutChart data={genreDonutData} primaryGenre={sortedGenres[0]?.label || 'J-Pop'} />
 
-        {/* 卡片 2：Top 5 热门歌曲（重构为水平进度条） */}
-        <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl flex flex-col justify-between shadow-xl w-full h-full">
+        {/* Top 5 水平进度条 */}
+        <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl flex flex-col justify-between shadow-xl w-full h-full min-h-[360px]">
           <div>
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
@@ -343,7 +381,6 @@ export default function App() {
               <span className="text-[11px] text-gray-400 font-mono">权值百分比</span>
             </div>
 
-            {/* 水平进度条列表 */}
             <div className="space-y-4">
               {(expandTopTracks ? processedTracks : processedTracks.slice(0, 5)).map((track) => {
                 const barWidthPct = ((track.weight / maxTrackWeight) * 100).toFixed(1);
@@ -352,13 +389,12 @@ export default function App() {
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center space-x-2.5 overflow-hidden">
                         <span className="font-mono text-gray-500 font-bold text-xs w-4">{track.rank}</span>
-                        <img src={track.album?.images?.[2]?.url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                        <img src={track.album?.images?.[2]?.url || track.album?.images?.[0]?.url} alt="" className="w-8 h-8 rounded object-cover shrink-0 bg-gray-800" />
                         <span className="font-semibold text-gray-200 truncate max-w-[180px] sm:max-w-[240px]">{track.name}</span>
-                        <span className="text-gray-500 text-[11px] truncate hidden sm:inline">- {track.artists.map(a => a.name).join(', ')}</span>
+                        <span className="text-gray-500 text-[11px] truncate hidden sm:inline">- {track.artists?.map(a => a.name).join(', ')}</span>
                       </div>
                       <span className="font-mono font-bold text-[#1DB954] shrink-0 ml-2">{track.pctStr}</span>
                     </div>
-                    {/* 渐变进度条 */}
                     <div className="w-full bg-[#262626] h-2 rounded-full overflow-hidden">
                       <div 
                         className="bg-gradient-to-r from-[#1DB954] to-emerald-400 h-full rounded-full transition-all duration-500 group-hover:brightness-125"
@@ -371,7 +407,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 展开查看 Top 50 按钮 */}
           {processedTracks.length > 5 && (
             <button
               onClick={() => setExpandTopTracks(!expandTopTracks)}
@@ -387,15 +422,14 @@ export default function App() {
         </div>
       </div>
 
-      {/* 4. 榜单明细区（2 列响应式布局，配实时搜索框与硬规则 0% 清洗） */}
+      {/* 4. 榜单明细区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 左栏：最爱歌曲 Top 10 列表 */}
+        {/* 左栏：最爱歌曲 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
               <Music size={18} className="text-[#1DB954]" /> 最爱歌曲榜单
             </h2>
-            {/* 轻量搜索框 */}
             <div className="relative w-full sm:w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
@@ -412,7 +446,6 @@ export default function App() {
             {filteredTracks.slice(0, 10).map((track) => (
               <div key={track.id} className="flex items-center justify-between bg-[#121212] hover:bg-[#222222] p-3 rounded-xl border border-[#2a2a2a] transition group">
                 <div className="flex items-center space-x-3 overflow-hidden">
-                  {/* 前 3 名高亮徽章 */}
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
                     track.rank === 1 ? 'bg-[#1DB954] text-black' :
                     track.rank === 2 ? 'bg-emerald-700 text-white' :
@@ -420,16 +453,16 @@ export default function App() {
                   }`}>
                     {track.rank}
                   </span>
-                  <img src={track.album?.images?.[2]?.url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                  <img src={track.album?.images?.[2]?.url || track.album?.images?.[0]?.url} alt="" className="w-10 h-10 rounded object-cover shrink-0 bg-gray-800" />
                   <div className="truncate">
                     <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{track.name}</p>
-                    <p className="text-[11px] text-gray-400 truncate mt-0.5">{track.artists.map(a => a.name).join(', ')}</p>
+                    <p className="text-[11px] text-gray-400 truncate mt-0.5">{track.artists?.map(a => a.name).join(', ')}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-3 shrink-0 ml-2 font-mono">
                   <span className="text-xs text-gray-500">
-                    {Math.floor(track.duration_ms / 60000)}:{Math.floor((track.duration_ms % 60000) / 1000).toString().padStart(2, '0')}
+                    {Math.floor((track.duration_ms || 0) / 60000)}:{Math.floor(((track.duration_ms || 0) % 60000) / 1000).toString().padStart(2, '0')}
                   </span>
                   <span className="text-xs font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-md">
                     {track.pctStr}
@@ -437,19 +470,27 @@ export default function App() {
                 </div>
               </div>
             ))}
+
             {filteredTracks.length === 0 && (
-              <p className="text-center text-xs text-gray-500 py-6 font-mono">未找到匹配歌曲</p>
+              <div className="text-center py-8">
+                <p className="text-xs text-gray-500 font-mono mb-3">暂无有效歌曲数据或搜索为空</p>
+                <button 
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#1DB954] bg-[#1DB954]/10 hover:bg-[#1DB954]/20 border border-[#1DB954]/30 px-3 py-1.5 rounded-full transition"
+                >
+                  <RefreshCw size={12} /> 重新登录刷新授权
+                </button>
+              </div>
             )}
           </div>
         </div>
 
-        {/* 右栏：最爱歌手 Top 10 列表 */}
+        {/* 右栏：最爱歌手 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
               <Mic size={18} className="text-[#1DB954]" /> 最爱歌手榜单
             </h2>
-            {/* 轻量搜索框 */}
             <div className="relative w-full sm:w-48">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
@@ -473,7 +514,7 @@ export default function App() {
                   }`}>
                     {idx + 1}
                   </span>
-                  <img src={artist.images?.[2]?.url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-700" />
+                  <img src={artist.images?.[2]?.url || artist.images?.[0]?.url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-700 bg-gray-800" />
                   <div className="truncate">
                     <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{artist.name}</p>
                     <span className="inline-block text-[10px] text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full mt-0.5 truncate max-w-[140px]">
@@ -487,8 +528,17 @@ export default function App() {
                 </span>
               </div>
             ))}
+
             {filteredArtists.length === 0 && (
-              <p className="text-center text-xs text-gray-500 py-6 font-mono">未找到匹配歌手</p>
+              <div className="text-center py-8">
+                <p className="text-xs text-gray-500 font-mono mb-3">暂无有效歌手数据或搜索为空</p>
+                <button 
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#1DB954] bg-[#1DB954]/10 hover:bg-[#1DB954]/20 border border-[#1DB954]/30 px-3 py-1.5 rounded-full transition"
+                >
+                  <RefreshCw size={12} /> 重新登录刷新授权
+                </button>
+              </div>
             )}
           </div>
         </div>
