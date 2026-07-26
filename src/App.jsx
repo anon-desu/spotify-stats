@@ -6,7 +6,7 @@ import {
   fetchTopTracks, 
   fetchTopArtists
 } from './spotify';
-import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User } from 'lucide-react';
+import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User, Info } from 'lucide-react';
 
 // 确定性安全微浮动函数（基于歌曲/歌手 ID 生成 0.94 ~ 1.06 的自然有机浮动）
 function getJitterFactor(identifier, index) {
@@ -198,16 +198,14 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
-  // --- 方案一：Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌曲) ---
+  // Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌曲)
   const rawTrackWeights = topTracks.map((track, idx) => {
     const rank = idx + 1;
-    // Zipf 人类音乐听歌衰减基准 (s = 0.88)
     const baseWeight = 1.0 / Math.pow(rank, 0.88);
     const jitter = getJitterFactor(track.id || track.name, idx);
     return baseWeight * jitter;
   });
 
-  // 严格递减修正（保证名次高的百分比必然大于名次低的）
   for (let i = 0; i < rawTrackWeights.length - 1; i++) {
     if (rawTrackWeights[i] <= rawTrackWeights[i + 1]) {
       rawTrackWeights[i + 1] = rawTrackWeights[i] * 0.95;
@@ -231,7 +229,7 @@ export default function App() {
 
   const maxTrackWeight = processedTracks[0]?.weight || 1;
 
-  // --- 方案一：Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌手) ---
+  // Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌手)
   const rawArtistWeights = topArtists.map((artist, idx) => {
     const rank = idx + 1;
     const baseWeight = 1.0 / Math.pow(rank, 0.88);
@@ -259,7 +257,6 @@ export default function App() {
     };
   });
 
-  // 处理核心偏好流派分布
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -420,6 +417,15 @@ export default function App() {
           <div className="p-3 bg-[#1DB954]/10 rounded-xl text-[#1DB954] border border-[#1DB954]/20">
             <Heart size={22} />
           </div>
+        </div>
+      </div>
+
+      {/* 📌 新增：数据真实性与算法声明卡片 */}
+      <div className="bg-[#181818]/90 border border-[#333333] rounded-2xl p-4 mb-8 flex items-start space-x-3 text-xs text-gray-400 shadow-md">
+        <Info size={18} className="text-[#1DB954] shrink-0 mt-0.5" />
+        <div className="leading-relaxed">
+          <span className="text-gray-200 font-bold mr-1">数据准确性与占比说明：</span>
+          本看板所有歌曲与歌手的<strong className="text-[#1DB954] font-semibold">排名顺序 100% 真实准确</strong>，直接由 Spotify 官方根据你个人账号的实际听歌频次生成。因 Spotify API 隐私规范不公开具体单曲播放次数（如“听了120次”），右侧百分比采用听歌偏好衰减模型归一化计算，以呈现更真实自然的视觉对比。
         </div>
       </div>
 
