@@ -1,13 +1,77 @@
 import React, { useState, useEffect } from 'react';
-import { redirectToAuthCodeFlow, getAccessToken, fetchProfile, fetchTopTracks, fetchTopArtists, fetchRecentlyPlayed } from './spotify';
-import { Music, Mic, Clock, LogOut } from 'lucide-react';
+import { redirectToAuthCodeFlow, getAccessToken, fetchProfile, fetchTopTracks, fetchTopArtists } from './spotify';
+import { Music, Mic, LogOut, Info, Sparkles, PieChart as PieIcon, Flame } from 'lucide-react';
+
+// 环形饼图组件 (Pure SVG, 零额外依赖)
+function DonutChart({ data, title }) {
+  const total = data.reduce((acc, item) => acc + item.value, 0);
+  if (total === 0) return null;
+
+  let currentAngle = 0;
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius;
+
+  return (
+    <div className="bg-[#181818]/90 backdrop-blur-md border border-gray-800/80 p-5 rounded-2xl flex flex-col items-center shadow-lg">
+      <h3 className="text-sm font-bold text-gray-200 mb-2 w-full text-left flex items-center gap-2">
+        <PieIcon size={16} className="text-green-400" />
+        <span>{title}</span>
+      </h3>
+      
+      <div className="relative w-40 h-40 flex items-center justify-center my-3">
+        <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
+          {data.map((item, idx) => {
+            const pct = item.value / total;
+            const strokeDasharray = `${pct * circumference} ${circumference}`;
+            const strokeDashoffset = -currentAngle;
+            currentAngle += pct * circumference;
+
+            return (
+              <circle
+                key={idx}
+                cx="50"
+                cy="50"
+                r={radius}
+                fill="transparent"
+                stroke={item.color}
+                strokeWidth="11"
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+                className="transition-all duration-300"
+              />
+            );
+          })}
+        </svg>
+        <div className="absolute flex flex-col items-center justify-center text-center">
+          <span className="text-[10px] text-gray-400 uppercase tracking-wider">样本总量</span>
+          <span className="text-base font-extrabold text-white">{total} 归类</span>
+        </div>
+      </div>
+
+      {/* 饼图下方图例与百分比 */}
+      <div className="w-full space-y-2 mt-2 pt-3 border-t border-gray-800">
+        {data.map((item, idx) => {
+          const pct = Math.round((item.value / total) * 100);
+          return (
+            <div key={idx} className="flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2 truncate max-w-[150px]">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                <span className="text-gray-300 truncate">{item.label}</span>
+              </div>
+              <span className="font-bold text-green-400 ml-2">{pct}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('spotify_token') || null);
   const [profile, setProfile] = useState(null);
   const [topTracks, setTopTracks] = useState([]);
   const [topArtists, setTopArtists] = useState([]);
-  const [recentTracks, setRecentTracks] = useState([]);
   const [timeRange, setTimeRange] = useState('medium_term');
   const [loading, setLoading] = useState(false);
 
@@ -31,16 +95,14 @@ export default function App() {
     async function loadData() {
       setLoading(true);
       try {
-        const [profData, tracksData, artistsData, recentData] = await Promise.all([
+        const [profData, tracksData, artistsData] = await Promise.all([
           fetchProfile(token),
           fetchTopTracks(token, timeRange),
-          fetchTopArtists(token, timeRange),
-          fetchRecentlyPlayed(token)
+          fetchTopArtists(token, timeRange)
         ]);
         setProfile(profData);
         setTopTracks(tracksData.items || []);
         setTopArtists(artistsData.items || []);
-        setRecentTracks(recentData.items || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -56,23 +118,89 @@ export default function App() {
     setToken(null);
   };
 
-  const totalRecentMinutes = Math.round(
-    recentTracks.reduce((acc, item) => acc + item.track.duration_ms, 0) / 1000 / 60
-  );
+  // --- 数据处理 1：歌手出现频次（前 95% + 剩余 5% 其他） ---
+  const artistCounts = {};
+  topTracks.forEach(track => {
+    track.artists.forEach(a => {
+      artistCounts[a.name] = (artistCounts[a.name] || 0) + 1;
+    });
+  });
+
+  const totalArtistCredits = Object.values(artistCounts).reduce((a, b) => a + b, 0) || 1;
+  const sortedArtistEntries = Object.entries(artistCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  let cumulativePct = 0;
+  const top95Artists = [];
+  let othersArtistCount = 0;
+
+  sortedArtistEntries.forEach((item) => {
+    const pct = item.count / totalArtistCredits;
+    if (cumulativePct < 0.95 && top95Artists.length < 5) {
+      top95Artists.push(item);
+      cumulativePct += pct;
+    } else {
+      othersArtistCount += item.count;
+    }
+  });
+
+  const COLOR_PALETTE = ['#1DB954', '#3b82f6', '#a855f7', '#ec4899', '#f59e0b', '#6b7280'];
+
+  const artistPieData = [
+    ...top95Artists.map((a, idx) => ({
+      label: a.name,
+      value: a.count,
+      color: COLOR_PALETTE[idx % COLOR_PALETTE.length]
+    })),
+    ...(othersArtistCount > 0 ? [{ label: '其他 (其余5%部分)', value: othersArtistCount, color: '#4b5563' }] : [])
+  ];
+
+  // --- 数据处理 2：曲风偏好百分比 ---
+  const genreCounts = {};
+  topArtists.forEach(artist => {
+    artist.genres?.forEach(g => {
+      const formatted = g.charAt(0).toUpperCase() + g.slice(1);
+      genreCounts[formatted] = (genreCounts[formatted] || 0) + 1;
+    });
+  });
+
+  const sortedGenres = Object.entries(genreCounts)
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+
+  const topGenres = sortedGenres.slice(0, 5);
+  const otherGenresCount = sortedGenres.slice(5).reduce((acc, cur) => acc + cur.value, 0);
+
+  const genrePieData = [
+    ...topGenres.map((g, idx) => ({
+      label: g.label,
+      value: g.value,
+      color: COLOR_PALETTE[(idx + 1) % COLOR_PALETTE.length]
+    })),
+    ...(otherGenresCount > 0 ? [{ label: '其他流行风格', value: otherGenresCount, color: '#4b5563' }] : [])
+  ];
+
+  // --- 计算平均单曲时长 ---
+  const avgDurationMs = topTracks.length 
+    ? Math.round(topTracks.reduce((acc, cur) => acc + cur.duration_ms, 0) / topTracks.length) 
+    : 0;
+  const avgMinutes = Math.floor(avgDurationMs / 60000);
+  const avgSeconds = Math.floor((avgDurationMs % 60000) / 1000);
 
   if (!token) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#121212] text-white p-6 text-center">
-        <div className="bg-green-500 p-4 rounded-full mb-6 text-black">
+        <div className="bg-green-500 p-4 rounded-full mb-6 text-black shadow-lg shadow-green-500/20">
           <Music size={48} />
         </div>
         <h1 className="text-3xl font-extrabold mb-2">My Spotify Stats</h1>
         <p className="text-gray-400 mb-8 max-w-xs text-sm">
-          探索你的听歌偏好、热门歌曲排行榜与歌手统计。
+          探索你的听歌偏好、歌手比例百分比与曲风分布图表。
         </p>
         <button
           onClick={redirectToAuthCodeFlow}
-          className="bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-full transition transform active:scale-95"
+          className="bg-green-500 hover:bg-green-400 text-black font-bold py-3.5 px-8 rounded-full transition transform active:scale-95 shadow-md"
         >
           使用 Spotify 登录
         </button>
@@ -80,29 +208,32 @@ export default function App() {
     );
   }
 
-  if (loading && !profile) return <div className="flex h-screen items-center justify-center text-green-500">加载数据中...</div>;
+  if (loading && !profile) return <div className="flex h-screen items-center justify-center text-green-500 font-bold">加载音乐分析中...</div>;
 
   return (
-    <div className="min-h-screen bg-[#121212] text-white p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="min-h-screen bg-[#121212] text-white p-4 md:p-8 max-w-4xl mx-auto pb-16">
+      {/* 头部信息 */}
       {profile && (
-        <div className="flex items-center justify-between border-b border-gray-800 pb-6 mb-6">
+        <div className="flex items-center justify-between border-b border-gray-800 pb-5 mb-6">
           <div className="flex items-center space-x-3">
             {profile.images?.[0]?.url && (
-              <img src={profile.images[0].url} alt="" className="w-12 h-12 rounded-full border border-green-500" />
+              <img src={profile.images[0].url} alt="" className="w-12 h-12 rounded-full border-2 border-green-500/80 object-cover" />
             )}
             <div>
-              <h1 className="text-xl font-bold">{profile.display_name}</h1>
-              <p className="text-gray-400 text-xs">Spotify 听歌记录分析</p>
+              <h1 className="text-xl font-bold flex items-center gap-1.5">
+                {profile.display_name}
+              </h1>
+              <p className="text-gray-400 text-xs">Spotify 听歌偏好仪表盘</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="p-2 bg-gray-800 rounded-full text-gray-300">
+          <button onClick={handleLogout} className="p-2.5 bg-gray-800/80 hover:bg-gray-700 rounded-full text-gray-300 transition">
             <LogOut size={18} />
           </button>
         </div>
       )}
 
-      {/* 切换时间范围 */}
-      <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
+      {/* 时间切片选择 */}
+      <div className="flex space-x-2 mb-6 overflow-x-auto pb-1">
         {[
           { key: 'short_term', label: '近 4 周' },
           { key: 'medium_term', label: '近 6 个月' },
@@ -111,8 +242,8 @@ export default function App() {
           <button
             key={item.key}
             onClick={() => setTimeRange(item.key)}
-            className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap ${
-              timeRange === item.key ? 'bg-green-500 text-black' : 'bg-gray-800 text-gray-300'
+            className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition ${
+              timeRange === item.key ? 'bg-green-500 text-black shadow-md shadow-green-500/20' : 'bg-gray-800/80 text-gray-300'
             }`}
           >
             {item.label}
@@ -120,49 +251,89 @@ export default function App() {
         ))}
       </div>
 
-      {/* 听歌时长估算卡片 */}
-      <div className="bg-gradient-to-r from-green-900/40 to-gray-900 border border-green-500/20 rounded-xl p-4 mb-8 flex items-center space-x-4">
-        <div className="p-3 bg-green-500/20 rounded-lg text-green-400">
-          <Clock size={24} />
+      {/* 听歌品味概览卡片 (替换原来的最近20首卡片) */}
+      <div className="bg-gradient-to-r from-green-950/50 via-gray-900 to-gray-900 border border-green-500/30 rounded-2xl p-5 mb-8 shadow-xl">
+        <div className="flex items-center space-x-2 text-green-400 text-xs font-bold uppercase tracking-wider mb-3">
+          <Sparkles size={16} />
+          <span>音乐品味概览</span>
         </div>
-        <div>
-          <h3 className="text-gray-400 text-xs">最近 20 首听歌时长</h3>
-          <p className="text-2xl font-bold text-white">{totalRecentMinutes} <span className="text-sm font-normal text-gray-400">分钟</span></p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-left">
+          <div className="bg-black/30 p-3 rounded-xl border border-gray-800">
+            <p className="text-gray-400 text-[11px]">分析最爱歌曲样本</p>
+            <p className="text-xl font-extrabold text-white mt-1">{topTracks.length} <span className="text-xs font-normal text-gray-400">首</span></p>
+          </div>
+          <div className="bg-black/30 p-3 rounded-xl border border-gray-800">
+            <p className="text-gray-400 text-[11px]">最爱歌曲平均时长</p>
+            <p className="text-xl font-extrabold text-white mt-1">{avgMinutes}:{avgSeconds.toString().padStart(2, '0')} <span className="text-xs font-normal text-gray-400">分</span></p>
+          </div>
+          <div className="bg-black/30 p-3 rounded-xl border border-gray-800 col-span-2 md:col-span-1">
+            <p className="text-gray-400 text-[11px]">第一偏好曲风</p>
+            <p className="text-base font-bold text-green-400 mt-1 truncate">{topGenres[0]?.label || 'J-Pop / ACG'}</p>
+          </div>
         </div>
       </div>
 
-      {/* 榜单展示 */}
-      <div className="space-y-8">
+      {/* 百分比饼图区域 (响应式并排/单列) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+        <DonutChart data={artistPieData} title="常听歌手占比 (前95%区间)" />
+        <DonutChart data={genrePieData} title="最喜欢的音乐风格分布" />
+      </div>
+
+      {/* 官方限制与数据说明小提示 */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-3.5 mb-8 flex items-start space-x-3 text-xs text-gray-400">
+        <Info size={16} className="text-green-400 shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          <strong className="text-gray-200">关于播放次数：</strong>Spotify 官方 API 出于数据隐私规范，不向开发者提供具体播放次数（如“听了150遍”）。我们在歌曲右侧为你展示了由 Spotify 官方计算的 <span className="text-green-400 font-semibold">🔥 推荐与热度得分 (0-100)</span>。
+        </p>
+      </div>
+
+      {/* Top 榜单区域 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Top 歌曲列表 */}
         <div>
-          <h2 className="text-lg font-bold mb-3 flex items-center gap-2 text-green-400">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-green-400">
             <Music size={18} /> 最爱歌曲 Top 10
           </h2>
-          <div className="space-y-2">
-            {topTracks.map((track, idx) => (
-              <div key={track.id} className="flex items-center justify-between bg-[#181818] p-2.5 rounded-lg">
+          <div className="space-y-2.5">
+            {topTracks.slice(0, 10).map((track, idx) => (
+              <div key={track.id} className="flex items-center justify-between bg-[#181818] hover:bg-[#222] p-3 rounded-xl border border-gray-800/60 transition">
                 <div className="flex items-center space-x-3 overflow-hidden">
-                  <span className="w-4 text-center text-gray-500 font-bold text-xs">{idx + 1}</span>
-                  <img src={track.album?.images?.[2]?.url} alt="" className="w-10 h-10 rounded shrink-0" />
+                  <span className="w-5 text-center text-gray-500 font-extrabold text-xs">{idx + 1}</span>
+                  <img src={track.album?.images?.[2]?.url} alt="" className="w-11 h-11 rounded-md object-cover shrink-0" />
                   <div className="truncate">
-                    <p className="font-semibold text-xs truncate">{track.name}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{track.artists.map(a => a.name).join(', ')}</p>
+                    <p className="font-semibold text-xs text-white truncate">{track.name}</p>
+                    <p className="text-[11px] text-gray-400 truncate mt-0.5">{track.artists.map(a => a.name).join(', ')}</p>
                   </div>
+                </div>
+                
+                {/* 替代具体次数的流行度权重 */}
+                <div className="flex flex-col items-end shrink-0 ml-2">
+                  <span className="flex items-center text-[10px] text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20 font-medium">
+                    <Flame size={10} className="mr-0.5" /> {track.popularity}
+                  </span>
+                  <span className="text-[10px] text-gray-500 mt-1">
+                    {Math.floor(track.duration_ms / 60000)}:{Math.floor((track.duration_ms % 60000) / 1000).toString().padStart(2, '0')}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
+        {/* Top 歌手列表 */}
         <div>
-          <h2 className="text-lg font-bold mb-3 flex items-center gap-2 text-green-400">
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-green-400">
             <Mic size={18} /> 最爱歌手 Top 10
           </h2>
-          <div className="space-y-2">
-            {topArtists.map((artist, idx) => (
-              <div key={artist.id} className="flex items-center space-x-3 bg-[#181818] p-2.5 rounded-lg">
-                <span className="w-4 text-center text-gray-500 font-bold text-xs">{idx + 1}</span>
-                <img src={artist.images?.[2]?.url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
-                <p className="font-semibold text-xs truncate">{artist.name}</p>
+          <div className="space-y-2.5">
+            {topArtists.slice(0, 10).map((artist, idx) => (
+              <div key={artist.id} className="flex items-center space-x-3 bg-[#181818] hover:bg-[#222] p-3 rounded-xl border border-gray-800/60 transition">
+                <span className="w-5 text-center text-gray-500 font-extrabold text-xs">{idx + 1}</span>
+                <img src={artist.images?.[2]?.url} alt="" className="w-11 h-11 rounded-full object-cover shrink-0 border border-gray-700" />
+                <div className="truncate">
+                  <p className="font-semibold text-xs text-white truncate">{artist.name}</p>
+                  <p className="text-[10px] text-gray-400 truncate mt-0.5">{artist.genres?.slice(0, 2).join(' / ') || '歌手'}</p>
+                </div>
               </div>
             ))}
           </div>
