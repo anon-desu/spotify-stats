@@ -87,37 +87,41 @@ export async function fetchUserPlaylists(token) {
   return res.json();
 }
 
-// 适配 Spotify 新版 /items API 接口路径
+// 高兼容性歌单获取端点
 export async function fetchPlaylistTracks(token, playlistId) {
   try {
-    // 优先尝试新版 /items 接口
-    let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items?limit=50`, { 
+    // 方式 1：直连获取全量 Playlist 对象（最稳定）
+    let res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, { 
       headers: { Authorization: `Bearer ${token}` } 
     });
     
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
       localStorage.removeItem('spotify_token');
+      localStorage.removeItem('verifier');
       window.location.reload();
       return { items: [] };
     }
 
-    // 备用兜底降级全量路径
-    if (!res.ok) {
-      res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
-      if (res.status === 401) {
-        localStorage.removeItem('spotify_token');
-        window.location.reload();
-        return { items: [] };
-      }
-      const data = await res.json();
-      return data.tracks || { items: [] };
+    let data = await res.json();
+    if (data && data.tracks && data.tracks.items) {
+      return { items: data.tracks.items };
     }
 
-    return await res.json();
+    // 方式 2：子路径兜底
+    res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, { 
+      headers: { Authorization: `Bearer ${token}` } 
+    });
+    if (res.status === 401 || res.status === 403) {
+      localStorage.removeItem('spotify_token');
+      localStorage.removeItem('verifier');
+      window.location.reload();
+      return { items: [] };
+    }
+    data = await res.json();
+    return data || { items: [] };
+
   } catch (e) {
-    console.error(e);
+    console.error("Fetch playlist error:", e);
     return { items: [] };
   }
 }
