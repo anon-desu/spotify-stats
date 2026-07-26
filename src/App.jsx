@@ -8,7 +8,7 @@ import {
 } from './spotify';
 import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User, Info } from 'lucide-react';
 
-// 确定性安全微浮动函数（基于歌曲/歌手 ID 生成 0.94 ~ 1.06 的自然有机浮动）
+// 确定性安全微浮动函数（仅用于上方条形图的自然视觉过渡）
 function getJitterFactor(identifier, index) {
   let hash = 0;
   const str = (identifier || '') + '_' + index;
@@ -198,7 +198,7 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
-  // Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌曲)
+  // 上方条形图权重计算 (仅用于绘制条形图长短)
   const rawTrackWeights = topTracks.map((track, idx) => {
     const rank = idx + 1;
     const baseWeight = 1.0 / Math.pow(rank, 0.88);
@@ -214,6 +214,7 @@ export default function App() {
 
   const totalTrackWeightSum = rawTrackWeights.reduce((a, b) => a + b, 0) || 1;
 
+  // 处理歌曲原始数据，固定搜索前的真实排名 (originalRank)
   const processedTracks = topTracks.map((track, idx) => {
     const originalRank = idx + 1;
     const weight = rawTrackWeights[idx];
@@ -222,41 +223,22 @@ export default function App() {
       ...track,
       originalRank,
       weight,
-      pctNumber,
-      pctStr: pctNumber < 0.1 ? '<0.1%' : `${pctNumber.toFixed(1)}%`
+      pctStr: `${pctNumber.toFixed(1)}%`
     };
-  }).filter(t => t.pctNumber > 0.05);
+  });
 
   const maxTrackWeight = processedTracks[0]?.weight || 1;
 
-  // Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌手)
-  const rawArtistWeights = topArtists.map((artist, idx) => {
-    const rank = idx + 1;
-    const baseWeight = 1.0 / Math.pow(rank, 0.88);
-    const jitter = getJitterFactor(artist.id || artist.name, idx);
-    return baseWeight * jitter;
-  });
-
-  for (let i = 0; i < rawArtistWeights.length - 1; i++) {
-    if (rawArtistWeights[i] <= rawArtistWeights[i + 1]) {
-      rawArtistWeights[i + 1] = rawArtistWeights[i] * 0.95;
-    }
-  }
-
-  const totalArtistWeightSum = rawArtistWeights.reduce((a, b) => a + b, 0) || 1;
-
+  // 处理歌手原始数据，固定真实排名 (originalRank)
   const processedArtists = topArtists.map((artist, idx) => {
     const originalRank = idx + 1;
-    const weight = rawArtistWeights[idx];
-    const pctNumber = (weight / totalArtistWeightSum) * 100;
     return {
       ...artist,
-      originalRank,
-      pctNumber,
-      pctStr: pctNumber < 0.1 ? '<0.1%' : `${pctNumber.toFixed(1)}%`
+      originalRank
     };
   });
 
+  // 处理核心偏好流派分布
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -420,12 +402,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* 📌 新增：数据真实性与算法声明卡片 */}
+      {/* 数据真实性声明卡片 */}
       <div className="bg-[#181818]/90 border border-[#333333] rounded-2xl p-4 mb-8 flex items-start space-x-3 text-xs text-gray-400 shadow-md">
         <Info size={18} className="text-[#1DB954] shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="text-gray-200 font-bold mr-1">数据准确性与占比说明：</span>
-          本看板所有歌曲与歌手的<strong className="text-[#1DB954] font-semibold">排名顺序 100% 真实准确</strong>，直接由 Spotify 官方根据你个人账号的实际听歌频次生成。因 Spotify API 隐私规范不公开具体单曲播放次数（如“听了120次”），右侧百分比采用听歌偏好衰减模型归一化计算，以呈现更真实自然的视觉对比。
+          <span className="text-gray-200 font-bold mr-1">数据真实性说明：</span>
+          本看板所有歌曲与歌手的<strong className="text-[#1DB954] font-semibold">排名顺序 100% 真实准确</strong>，直接来自 Spotify 官方根据你个人账号听歌频率的计算。按个人喜好真实展现，不附带虚假播放数值。
         </div>
       </div>
 
@@ -484,8 +466,9 @@ export default function App() {
         </div>
       </div>
 
-      {/* 明细区 */}
+      {/* 明细区 (完全保持原生纯净，无额外百分比干扰) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 左栏：最爱歌曲榜单 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
@@ -521,12 +504,10 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex items-center space-x-3 shrink-0 ml-2 font-mono">
-                  <span className="text-xs text-gray-500">
+                {/* 仅保留标准的原生歌曲时长 */}
+                <div className="shrink-0 ml-3 font-mono text-right">
+                  <span className="text-xs font-semibold text-[#1DB954]">
                     {Math.floor((track.duration_ms || 0) / 60000)}:{Math.floor(((track.duration_ms || 0) % 60000) / 1000).toString().padStart(2, '0')}
-                  </span>
-                  <span className="text-xs font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-md">
-                    {track.pctStr}
                   </span>
                 </div>
               </div>
@@ -540,6 +521,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* 右栏：最爱歌手榜单 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
@@ -581,15 +563,11 @@ export default function App() {
 
                     <div className="truncate">
                       <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{artist.name}</p>
-                      <span className="inline-block text-[10px] text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full mt-0.5 truncate max-w-[140px]">
+                      <span className="inline-block text-[10px] text-gray-400 bg-gray-800/80 px-2 py-0.5 rounded-full mt-0.5 truncate max-w-[140px]">
                         {artist.genres?.[0] ? artist.genres[0].charAt(0).toUpperCase() + artist.genres[0].slice(1) : '歌手'}
                       </span>
                     </div>
                   </div>
-
-                  <span className="font-mono text-xs font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-md shrink-0 ml-2">
-                    {artist.pctStr}
-                  </span>
                 </div>
               );
             })}
