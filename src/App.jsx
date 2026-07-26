@@ -5,12 +5,10 @@ import {
   fetchProfile, 
   fetchTopTracks, 
   fetchTopArtists,
-  fetchUserPlaylists,
-  fetchPlaylistTracks,
   fetchLikedSongs,
   fetchArtistsByIds
 } from './spotify';
-import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, RefreshCw, Github, User, ListMusic } from 'lucide-react';
+import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User, Layers } from 'lucide-react';
 
 function GenreDonutChart({ data, primaryGenre }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
@@ -125,8 +123,7 @@ export default function App() {
   
   const [topTracks, setTopTracks] = useState([]);
   const [topArtists, setTopArtists] = useState([]);
-  const [playlists, setPlaylists] = useState([]);
-  const [selectedPlaylist, setSelectedPlaylist] = useState('ALL'); // 'ALL', 'LIKED', 或具体歌单 ID
+  const [viewMode, setViewMode] = useState('ALL'); //仅保留 'ALL' (总览) 与 'LIKED' (已点赞)
 
   const [timeRange, setTimeRange] = useState('medium_term');
   const [loading, setLoading] = useState(false);
@@ -167,12 +164,8 @@ export default function App() {
     if (!token) return;
     async function initUser() {
       try {
-        const [profData, playlistData] = await Promise.all([
-          fetchProfile(token),
-          fetchUserPlaylists(token)
-        ]);
+        const profData = await fetchProfile(token);
         if (profData) setProfile(profData);
-        setPlaylists(playlistData?.items || []);
       } catch (err) {
         console.error(err);
       }
@@ -185,69 +178,61 @@ export default function App() {
     async function loadData() {
       setLoading(true);
       try {
-        let extractedTracks = [];
-
-        if (selectedPlaylist === 'ALL') {
-          // 模式 A：全账号历史偏好
+        if (viewMode === 'ALL') {
+          // 模式 1：账号总体偏好
           const [tracksData, artistsData] = await Promise.all([
             fetchTopTracks(token, timeRange),
             fetchTopArtists(token, timeRange)
           ]);
           setTopTracks(tracksData?.items || []);
           setTopArtists(artistsData?.items || []);
-          setLoading(false);
-          return;
-        } else if (selectedPlaylist === 'LIKED') {
-          // 模式 B：已点赞的歌曲 (Liked Songs)
+        } else {
+          // 模式 2：已点赞的歌曲 (Liked Songs)
           const likedData = await fetchLikedSongs(token);
           const rawItems = likedData?.items || [];
-          extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
-        } else {
-          // 模式 C：个人创建/收藏的歌单
-          const playlistTracksData = await fetchPlaylistTracks(token, selectedPlaylist);
-          const rawItems = playlistTracksData?.items || playlistTracksData?.tracks?.items || [];
-          extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
-        }
+          const extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
+          setTopTracks(extractedTracks);
 
-        setTopTracks(extractedTracks);
-
-        // 强力从曲目中解构歌手与流派（100% 保证有数据）
-        const artistMap = {};
-        extractedTracks.forEach(t => {
-          t.artists?.forEach(a => {
-            if (a.name) {
-              if (!artistMap[a.name]) {
-                artistMap[a.name] = { id: a.id || a.name, name: a.name, count: 0, images: [], genres: ['J-Pop / ACG'] };
+          // 解构歌手并补全头像与真实流派
+          const artistMap = {};
+          extractedTracks.forEach(t => {
+            t.artists?.forEach(a => {
+              if (a.name) {
+                if (!artistMap[a.name]) {
+                  artistMap[a.name] = { id: a.id, name: a.name, count: 0, images: [], genres: ['J-Pop'] };
+                }
+                artistMap[a.name].count += 1;
               }
-              artistMap[a.name].count += 1;
-            }
-          });
-        });
-
-        const directArtists = Object.values(artistMap).sort((a, b) => b.count - a.count);
-
-        const artistIds = directArtists.map(a => a.id).filter(id => id && id.length > 5);
-        if (artistIds.length > 0) {
-          try {
-            const enrichedData = await fetchArtistsByIds(token, artistIds);
-            const enrichedMap = {};
-            enrichedData?.artists?.forEach(art => {
-              if (art) enrichedMap[art.id] = art;
             });
+          });
 
-            const mergedArtists = directArtists.map(a => ({
-              ...a,
-              images: enrichedMap[a.id]?.images || [],
-              genres: enrichedMap[a.id]?.genres?.length ? enrichedMap[a.id].genres : ['J-Pop']
-            }));
-            setTopArtists(mergedArtists);
-          } catch (e) {
+          const directArtists = Object.values(artistMap).sort((a, b) => b.count - a.count);
+
+          const validArtistIds = directArtists.map(a => a.id).filter(id => id && id.length > 5);
+          if (validArtistIds.length > 0) {
+            try {
+              const enrichedData = await fetchArtistsByIds(token, validArtistIds.slice(0, 50));
+              const enrichedMap = {};
+              enrichedData?.artists?.forEach(art => {
+                if (art && art.id) enrichedMap[art.id] = art;
+              });
+
+              const mergedArtists = directArtists.map(a => {
+                const enriched = enrichedMap[a.id];
+                return {
+                  ...a,
+                  images: enriched?.images?.length ? enriched.images : (a.images || []),
+                  genres: enriched?.genres?.length ? enriched.genres : ['J-Pop']
+                };
+              });
+              setTopArtists(mergedArtists);
+            } catch (e) {
+              setTopArtists(directArtists);
+            }
+          } else {
             setTopArtists(directArtists);
           }
-        } else {
-          setTopArtists(directArtists);
         }
-
       } catch (err) {
         console.error(err);
       } finally {
@@ -255,7 +240,7 @@ export default function App() {
       }
     }
     loadData();
-  }, [token, timeRange, selectedPlaylist]);
+  }, [token, timeRange, viewMode]);
 
   const handleForceReAuth = () => {
     localStorage.removeItem('spotify_token');
@@ -398,25 +383,28 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
-            {/* 歌单选择器 (支持“已点赞的歌曲”) */}
-            <div className="flex items-center bg-[#181818] border border-[#333333] rounded-full px-3 py-1.5 text-xs text-gray-300">
-              <ListMusic size={14} className="text-[#1DB954] mr-1.5 shrink-0" />
-              <select
-                value={selectedPlaylist}
-                onChange={(e) => setSelectedPlaylist(e.target.value)}
-                className="bg-transparent text-white outline-none cursor-pointer text-xs max-w-[150px] sm:max-w-[200px] truncate"
+            {/* 极简模式选择器（仅保留：账号总体偏好 / 已点赞的歌曲） */}
+            <div className="flex items-center bg-[#181818] border border-[#333333] rounded-full p-1 text-xs text-gray-300">
+              <button
+                onClick={() => setViewMode('ALL')}
+                className={`px-3 py-1.5 rounded-full font-semibold transition ${
+                  viewMode === 'ALL' ? 'bg-[#1DB954] text-black shadow-md' : 'text-gray-400 hover:text-white'
+                }`}
               >
-                <option value="ALL" className="bg-[#181818] text-white">🌐 账号总体偏好</option>
-                <option value="LIKED" className="bg-[#181818] text-[#1DB954] font-bold">❤️ 已点赞的歌曲</option>
-                {playlists.map(p => (
-                  <option key={p.id} value={p.id} className="bg-[#181818] text-white">
-                    🎵 歌单: {p.name}
-                  </option>
-                ))}
-              </select>
+                🌐 账号总体偏好
+              </button>
+              <button
+                onClick={() => setViewMode('LIKED')}
+                className={`px-3 py-1.5 rounded-full font-semibold transition ${
+                  viewMode === 'LIKED' ? 'bg-[#1DB954] text-black shadow-md' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                ❤️ 已点赞的歌曲
+              </button>
             </div>
 
-            {selectedPlaylist === 'ALL' && (
+            {/* 仅在【账号总体偏好】模式下显示时间切片 */}
+            {viewMode === 'ALL' && (
               <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333]">
                 {[
                   { key: 'short_term', label: '近 4 周' },
@@ -456,7 +444,7 @@ export default function App() {
         <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors shadow-lg">
           <div>
             <p className="text-gray-400 text-xs font-medium">
-              {selectedPlaylist === 'ALL' ? '精选热听曲目' : '当前歌单/收藏曲目'}
+              {viewMode === 'ALL' ? '精选热听曲目' : '已点赞曲目总数'}
             </p>
             <p className="text-2xl font-black text-white mt-1 font-mono tracking-tight">{topTracks.length} <span className="text-sm font-normal text-gray-400">首</span></p>
           </div>
@@ -605,30 +593,41 @@ export default function App() {
           </div>
 
           <div className="space-y-2.5">
-            {filteredArtists.slice(0, 10).map((artist) => (
-              <div key={artist.id || artist.name} className="flex items-center justify-between bg-[#121212] hover:bg-[#222222] p-3 rounded-xl border border-[#2a2a2a] transition group">
-                <div className="flex items-center space-x-3 overflow-hidden">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
-                    artist.originalRank === 1 ? 'bg-[#1DB954] text-black' :
-                    artist.originalRank === 2 ? 'bg-emerald-700 text-white' :
-                    artist.originalRank === 3 ? 'bg-teal-800 text-white' : 'text-gray-500'
-                  }`}>
-                    {artist.originalRank}
-                  </span>
-                  <img src={artist.images?.[2]?.url || artist.images?.[0]?.url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-700 bg-gray-800" />
-                  <div className="truncate">
-                    <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{artist.name}</p>
-                    <span className="inline-block text-[10px] text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full mt-0.5 truncate max-w-[140px]">
-                      {artist.genres?.[0] ? artist.genres[0].charAt(0).toUpperCase() + artist.genres[0].slice(1) : '歌手'}
+            {filteredArtists.slice(0, 10).map((artist) => {
+              const imgUrl = artist.images?.[2]?.url || artist.images?.[0]?.url;
+              return (
+                <div key={artist.id || artist.name} className="flex items-center justify-between bg-[#121212] hover:bg-[#222222] p-3 rounded-xl border border-[#2a2a2a] transition group">
+                  <div className="flex items-center space-x-3 overflow-hidden">
+                    <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
+                      artist.originalRank === 1 ? 'bg-[#1DB954] text-black' :
+                      artist.originalRank === 2 ? 'bg-emerald-700 text-white' :
+                      artist.originalRank === 3 ? 'bg-teal-800 text-white' : 'text-gray-500'
+                    }`}>
+                      {artist.originalRank}
                     </span>
-                  </div>
-                </div>
 
-                <span className="font-mono text-xs font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-md shrink-0 ml-2">
-                  {artist.pctStr}
-                </span>
-              </div>
-            ))}
+                    {imgUrl ? (
+                      <img src={imgUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0 border border-gray-700 bg-gray-800" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-[#1DB954]/20 border border-[#1DB954]/40 flex items-center justify-center text-[#1DB954] font-bold text-xs shrink-0 font-mono">
+                        {artist.name ? artist.name.charAt(0) : <Mic size={16} />}
+                      </div>
+                    )}
+
+                    <div className="truncate">
+                      <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{artist.name}</p>
+                      <span className="inline-block text-[10px] text-gray-400 bg-gray-800 px-2 py-0.5 rounded-full mt-0.5 truncate max-w-[140px]">
+                        {artist.genres?.[0] ? artist.genres[0].charAt(0).toUpperCase() + artist.genres[0].slice(1) : '歌手'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className="font-mono text-xs font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-md shrink-0 ml-2">
+                    {artist.pctStr}
+                  </span>
+                </div>
+              );
+            })}
 
             {filteredArtists.length === 0 && (
               <div className="text-center py-8">
