@@ -54,18 +54,31 @@ export async function getAccessToken(code) {
   return data.access_token;
 }
 
+// 自动检测 Token 过期与清除辅助函数
+function handleTokenExpiration(res) {
+  if (res.status === 401) {
+    localStorage.removeItem('spotify_token');
+    localStorage.removeItem('verifier');
+    window.location.href = window.location.origin;
+    return true;
+  }
+  return false;
+}
+
 export async function fetchProfile(token) {
   const res = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${token}` } });
+  if (handleTokenExpiration(res)) return null;
   return res.json();
 }
 
-// 调取 50 首数据以获取准确的百分比统计
 export async function fetchTopTracks(token, timeRange = 'medium_term') {
   const res = await fetch(`https://api.spotify.com/v1/me/top/tracks?time_range=${timeRange}&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
+  if (handleTokenExpiration(res)) return { items: [] };
   return res.json();
 }
 
 export async function fetchTopArtists(token, timeRange = 'medium_term') {
   const res = await fetch(`https://api.spotify.com/v1/me/top/artists?time_range=${timeRange}&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
+  if (handleTokenExpiration(res)) return { items: [] };
   return res.json();
 }
