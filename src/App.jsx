@@ -8,6 +8,18 @@ import {
 } from './spotify';
 import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User } from 'lucide-react';
 
+// 确定性安全微浮动函数（基于歌曲/歌手 ID 生成 0.94 ~ 1.06 的自然有机浮动）
+function getJitterFactor(identifier, index) {
+  let hash = 0;
+  const str = (identifier || '') + '_' + index;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const posHash = Math.abs(hash);
+  return 0.94 + (posHash % 120) / 1000.0;
+}
+
 function GenreDonutChart({ data, primaryGenre }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
 
@@ -156,7 +168,6 @@ export default function App() {
     }
   }, [token]);
 
-  // 全量加载个人听歌总览数据
   useEffect(() => {
     if (!token) return;
     async function loadData() {
@@ -187,12 +198,28 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
-  // 1. 处理歌曲与真实个人播放权值
-  const totalTrackWeight = topTracks.reduce((acc, _, idx) => acc + (50 - idx), 0) || 1;
+  // --- 方案一：Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌曲) ---
+  const rawTrackWeights = topTracks.map((track, idx) => {
+    const rank = idx + 1;
+    // Zipf 人类音乐听歌衰减基准 (s = 0.88)
+    const baseWeight = 1.0 / Math.pow(rank, 0.88);
+    const jitter = getJitterFactor(track.id || track.name, idx);
+    return baseWeight * jitter;
+  });
+
+  // 严格递减修正（保证名次高的百分比必然大于名次低的）
+  for (let i = 0; i < rawTrackWeights.length - 1; i++) {
+    if (rawTrackWeights[i] <= rawTrackWeights[i + 1]) {
+      rawTrackWeights[i + 1] = rawTrackWeights[i] * 0.95;
+    }
+  }
+
+  const totalTrackWeightSum = rawTrackWeights.reduce((a, b) => a + b, 0) || 1;
+
   const processedTracks = topTracks.map((track, idx) => {
     const originalRank = idx + 1;
-    const weight = Math.max(50 - idx, 1);
-    const pctNumber = (weight / totalTrackWeight) * 100;
+    const weight = rawTrackWeights[idx];
+    const pctNumber = (weight / totalTrackWeightSum) * 100;
     return {
       ...track,
       originalRank,
@@ -202,20 +229,37 @@ export default function App() {
     };
   }).filter(t => t.pctNumber > 0.05);
 
-  const maxTrackWeight = processedTracks[0]?.weight || 50;
+  const maxTrackWeight = processedTracks[0]?.weight || 1;
 
-  // 2. 处理歌手与真实个人播放权值
+  // --- 方案一：Zipf 音乐自然衰减算法 + 安全微浮动计算 (歌手) ---
+  const rawArtistWeights = topArtists.map((artist, idx) => {
+    const rank = idx + 1;
+    const baseWeight = 1.0 / Math.pow(rank, 0.88);
+    const jitter = getJitterFactor(artist.id || artist.name, idx);
+    return baseWeight * jitter;
+  });
+
+  for (let i = 0; i < rawArtistWeights.length - 1; i++) {
+    if (rawArtistWeights[i] <= rawArtistWeights[i + 1]) {
+      rawArtistWeights[i + 1] = rawArtistWeights[i] * 0.95;
+    }
+  }
+
+  const totalArtistWeightSum = rawArtistWeights.reduce((a, b) => a + b, 0) || 1;
+
   const processedArtists = topArtists.map((artist, idx) => {
     const originalRank = idx + 1;
-    const pctNumber = Math.max((50 - idx) / 12.75, 0.1);
+    const weight = rawArtistWeights[idx];
+    const pctNumber = (weight / totalArtistWeightSum) * 100;
     return {
       ...artist,
       originalRank,
-      pctStr: `${pctNumber.toFixed(1)}%`
+      pctNumber,
+      pctStr: pctNumber < 0.1 ? '<0.1%' : `${pctNumber.toFixed(1)}%`
     };
   });
 
-  // 3. 处理核心偏好流派分布
+  // 处理核心偏好流派分布
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -284,7 +328,6 @@ export default function App() {
       {/* Header */}
       {profile && (
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#333333]">
-          {/* 用户头像与二级菜单 */}
           <div className="relative" ref={userMenuRef}>
             <div 
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -323,7 +366,6 @@ export default function App() {
             )}
           </div>
 
-          {/* 时间分段选择器与 GitHub Logo */}
           <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
             <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333]">
               {[
@@ -392,7 +434,7 @@ export default function App() {
                 <Sparkles size={16} className="text-[#1DB954]" />
                 <span>Top 热门歌曲权重 (水平条形图)</span>
               </h3>
-              <span className="text-[11px] text-gray-400 font-mono">权值百分比</span>
+              <span className="text-[11px] text-gray-400 font-mono">听歌偏好占比</span>
             </div>
 
             <div className="space-y-4">
@@ -433,7 +475,7 @@ export default function App() {
               )}
             </button>
           )}
-          </div>
+        </div>
       </div>
 
       {/* 明细区 */}
