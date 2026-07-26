@@ -9,7 +9,7 @@ import {
   fetchPlaylistTracks,
   fetchArtistsByIds
 } from './spotify';
-import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, RefreshCw, Github, User, ListMusic, AlertCircle } from 'lucide-react';
+import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, RefreshCw, Github, User, ListMusic, ShieldAlert } from 'lucide-react';
 
 // 1. 流派分布圆环图组件
 function GenreDonutChart({ data, primaryGenre }) {
@@ -181,14 +181,14 @@ export default function App() {
     initUser();
   }, [token]);
 
-  // 2. 根据全账号或具体歌单切换数据
+  // 2. 根据选中的模式加载数据
   useEffect(() => {
     if (!token) return;
     async function loadData() {
       setLoading(true);
       try {
         if (selectedPlaylist === 'ALL') {
-          // 全账号模式
+          // 全账号总体偏好
           const [tracksData, artistsData] = await Promise.all([
             fetchTopTracks(token, timeRange),
             fetchTopArtists(token, timeRange)
@@ -196,15 +196,14 @@ export default function App() {
           setTopTracks(tracksData?.items || []);
           setTopArtists(artistsData?.items || []);
         } else {
-          // 歌单分析模式 (带强力容错与直接提取)
+          // 歌单切片分析模式
           const playlistTracksData = await fetchPlaylistTracks(token, selectedPlaylist);
           const rawItems = playlistTracksData?.items || [];
           
-          // 容错提取歌曲对象
           const extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
           setTopTracks(extractedTracks);
 
-          // 直接从歌单曲目中收集歌手
+          // 收集歌手
           const artistMap = {};
           extractedTracks.forEach(t => {
             t.artists?.forEach(a => {
@@ -219,7 +218,6 @@ export default function App() {
 
           const directArtists = Object.values(artistMap).sort((a, b) => b.count - a.count);
 
-          // 尝试补全歌手的流派与头像
           const artistIds = directArtists.map(a => a.id).filter(id => id && id.length > 5);
           if (artistIds.length > 0) {
             try {
@@ -251,7 +249,6 @@ export default function App() {
     loadData();
   }, [token, timeRange, selectedPlaylist]);
 
-  // 强制清除权限缓存并重新登录
   const handleForceReAuth = () => {
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('verifier');
@@ -260,7 +257,7 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
-  // 歌曲数据（带绝对固定排名 originalRank）
+  // 处理歌曲与绝对固定排名
   const totalTrackWeight = topTracks.reduce((acc, _, idx) => acc + (50 - idx), 0) || 1;
   const processedTracks = topTracks.map((track, idx) => {
     const originalRank = idx + 1;
@@ -277,7 +274,7 @@ export default function App() {
 
   const maxTrackWeight = processedTracks[0]?.weight || 50;
 
-  // 歌手数据（带绝对固定排名 originalRank）
+  // 处理歌手与绝对固定排名
   const processedArtists = topArtists.map((artist, idx) => {
     const originalRank = idx + 1;
     const pctNumber = Math.max((50 - idx) / 12.75, 0.1);
@@ -288,7 +285,7 @@ export default function App() {
     };
   });
 
-  // 流派分布数据
+  // 处理流派分布数据
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -321,7 +318,7 @@ export default function App() {
     }] : [])
   ];
 
-  // 搜索过滤
+  // 过滤搜索
   const filteredTracks = processedTracks.filter(t => 
     (t.name || '').toLowerCase().includes(trackSearch.toLowerCase()) ||
     t.artists?.some(a => (a.name || '').toLowerCase().includes(trackSearch.toLowerCase()))
@@ -330,6 +327,9 @@ export default function App() {
   const filteredArtists = processedArtists.filter(a => 
     (a.name || '').toLowerCase().includes(artistSearch.toLowerCase())
   );
+
+  const currentSelectedPlaylistObj = playlists.find(p => p.id === selectedPlaylist);
+  const isSelectedOfficial = currentSelectedPlaylistObj && profile && currentSelectedPlaylistObj.owner?.id !== profile.id;
 
   if (!token) {
     return (
@@ -358,7 +358,6 @@ export default function App() {
       {/* 1. 顶部 Header */}
       {profile && (
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#333333]">
-          {/* 头像 + 二级菜单 */}
           <div className="relative" ref={userMenuRef}>
             <div 
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -380,7 +379,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 点击头像二级菜单 */}
             {showUserMenu && (
               <div className="absolute left-0 mt-2 w-52 bg-[#181818] border border-[#333333] rounded-2xl shadow-2xl p-2.5 z-50">
                 <div className="p-2 border-b border-[#2a2a2a] mb-1">
@@ -398,26 +396,27 @@ export default function App() {
             )}
           </div>
 
-          {/* 右侧控件：歌单选择、分段选择器、GitHub */}
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
-            {/* 歌单切换下拉框 */}
+            {/* 智能标记：区分个人创建与官方公共歌单 */}
             <div className="flex items-center bg-[#181818] border border-[#333333] rounded-full px-3 py-1.5 text-xs text-gray-300">
               <ListMusic size={14} className="text-[#1DB954] mr-1.5 shrink-0" />
               <select
                 value={selectedPlaylist}
                 onChange={(e) => setSelectedPlaylist(e.target.value)}
-                className="bg-transparent text-white outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[160px] truncate"
+                className="bg-transparent text-white outline-none cursor-pointer text-xs max-w-[150px] sm:max-w-[190px] truncate"
               >
                 <option value="ALL" className="bg-[#181818] text-white">🌐 账号总体偏好</option>
-                {playlists.map(p => (
-                  <option key={p.id} value={p.id} className="bg-[#181818] text-white">
-                    🎵 歌单: {p.name}
-                  </option>
-                ))}
+                {playlists.map(p => {
+                  const isMine = profile && p.owner?.id === profile.id;
+                  return (
+                    <option key={p.id} value={p.id} className="bg-[#181818] text-white">
+                      {isMine ? '👤 个人: ' : '🔒 官方: '}{p.name}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
-            {/* 全账号模式下的时间分段选择器 */}
             {selectedPlaylist === 'ALL' && (
               <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333]">
                 {[
@@ -440,7 +439,6 @@ export default function App() {
               </div>
             )}
 
-            {/* GitHub 按钮 */}
             <a
               href="https://github.com/anon-desu/spotify-stats"
               target="_blank"
@@ -454,19 +452,15 @@ export default function App() {
         </header>
       )}
 
-      {/* 歌单模式下如果读不到数据的修复横幅 */}
-      {selectedPlaylist !== 'ALL' && topTracks.length === 0 && !loading && (
+      {/* 针对 Spotify 开发模式对官方公共歌单限制的明确友情提示 */}
+      {selectedPlaylist !== 'ALL' && isSelectedOfficial && topTracks.length === 0 && !loading && (
         <div className="my-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-300">
           <div className="flex items-center space-x-2">
-            <AlertCircle size={18} className="shrink-0 text-amber-400" />
-            <span>无法读取该歌单？可能是因为当前登录授权缺少歌单访问权限（403 错误）。</span>
+            <ShieldAlert size={20} className="shrink-0 text-amber-400" />
+            <span>
+              <strong>Spotify 官方 API 限制通知：</strong>由于你的应用处于未审核开发模式，Spotify 官方禁止 API 读取公共/官方编辑歌单（如《日本流行》）。请在下拉菜单中切换为你<strong>自己创建的歌单 (`👤 个人歌单`)</strong> 即可完美显示！
+            </span>
           </div>
-          <button
-            onClick={handleForceReAuth}
-            className="bg-[#1DB954] hover:bg-green-400 text-black font-bold px-4 py-1.5 rounded-full transition shrink-0 flex items-center gap-1.5"
-          >
-            <RefreshCw size={12} /> 一键重新授权并登录
-          </button>
         </div>
       )}
 
@@ -553,7 +547,6 @@ export default function App() {
 
       {/* 4. 榜单明细区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 左栏：最爱歌曲榜单 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
@@ -608,7 +601,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* 右栏：最爱歌手榜单 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
             <h2 className="text-base font-bold text-gray-200 flex items-center gap-2">
@@ -631,7 +623,7 @@ export default function App() {
               <div key={artist.id || artist.name} className="flex items-center justify-between bg-[#121212] hover:bg-[#222222] p-3 rounded-xl border border-[#2a2a2a] transition group">
                 <div className="flex items-center space-x-3 overflow-hidden">
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
-                    artist.originalRank === 1 ? 'bg-[#1DB954] text-[#000000]' :
+                    artist.originalRank === 1 ? 'bg-[#1DB954] text-black' :
                     artist.originalRank === 2 ? 'bg-emerald-700 text-white' :
                     artist.originalRank === 3 ? 'bg-teal-800 text-white' : 'text-gray-500'
                   }`}>
