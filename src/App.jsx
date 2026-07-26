@@ -4,11 +4,9 @@ import {
   getAccessToken, 
   fetchProfile, 
   fetchTopTracks, 
-  fetchTopArtists,
-  fetchLikedSongs,
-  fetchArtistsByIds
+  fetchTopArtists
 } from './spotify';
-import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User, Layers } from 'lucide-react';
+import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, Github, User } from 'lucide-react';
 
 function GenreDonutChart({ data, primaryGenre }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
@@ -123,8 +121,6 @@ export default function App() {
   
   const [topTracks, setTopTracks] = useState([]);
   const [topArtists, setTopArtists] = useState([]);
-  const [viewMode, setViewMode] = useState('ALL'); //仅保留 'ALL' (总览) 与 'LIKED' (已点赞)
-
   const [timeRange, setTimeRange] = useState('medium_term');
   const [loading, setLoading] = useState(false);
 
@@ -160,79 +156,20 @@ export default function App() {
     }
   }, [token]);
 
-  useEffect(() => {
-    if (!token) return;
-    async function initUser() {
-      try {
-        const profData = await fetchProfile(token);
-        if (profData) setProfile(profData);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    initUser();
-  }, [token]);
-
+  // 全量加载个人听歌总览数据
   useEffect(() => {
     if (!token) return;
     async function loadData() {
       setLoading(true);
       try {
-        if (viewMode === 'ALL') {
-          // 模式 1：账号总体偏好
-          const [tracksData, artistsData] = await Promise.all([
-            fetchTopTracks(token, timeRange),
-            fetchTopArtists(token, timeRange)
-          ]);
-          setTopTracks(tracksData?.items || []);
-          setTopArtists(artistsData?.items || []);
-        } else {
-          // 模式 2：已点赞的歌曲 (Liked Songs)
-          const likedData = await fetchLikedSongs(token);
-          const rawItems = likedData?.items || [];
-          const extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
-          setTopTracks(extractedTracks);
-
-          // 解构歌手并补全头像与真实流派
-          const artistMap = {};
-          extractedTracks.forEach(t => {
-            t.artists?.forEach(a => {
-              if (a.name) {
-                if (!artistMap[a.name]) {
-                  artistMap[a.name] = { id: a.id, name: a.name, count: 0, images: [], genres: ['J-Pop'] };
-                }
-                artistMap[a.name].count += 1;
-              }
-            });
-          });
-
-          const directArtists = Object.values(artistMap).sort((a, b) => b.count - a.count);
-
-          const validArtistIds = directArtists.map(a => a.id).filter(id => id && id.length > 5);
-          if (validArtistIds.length > 0) {
-            try {
-              const enrichedData = await fetchArtistsByIds(token, validArtistIds.slice(0, 50));
-              const enrichedMap = {};
-              enrichedData?.artists?.forEach(art => {
-                if (art && art.id) enrichedMap[art.id] = art;
-              });
-
-              const mergedArtists = directArtists.map(a => {
-                const enriched = enrichedMap[a.id];
-                return {
-                  ...a,
-                  images: enriched?.images?.length ? enriched.images : (a.images || []),
-                  genres: enriched?.genres?.length ? enriched.genres : ['J-Pop']
-                };
-              });
-              setTopArtists(mergedArtists);
-            } catch (e) {
-              setTopArtists(directArtists);
-            }
-          } else {
-            setTopArtists(directArtists);
-          }
-        }
+        const [profData, tracksData, artistsData] = await Promise.all([
+          fetchProfile(token),
+          fetchTopTracks(token, timeRange),
+          fetchTopArtists(token, timeRange)
+        ]);
+        if (profData) setProfile(profData);
+        setTopTracks(tracksData?.items || []);
+        setTopArtists(artistsData?.items || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -240,7 +177,7 @@ export default function App() {
       }
     }
     loadData();
-  }, [token, timeRange, viewMode]);
+  }, [token, timeRange]);
 
   const handleForceReAuth = () => {
     localStorage.removeItem('spotify_token');
@@ -250,6 +187,7 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
+  // 1. 处理歌曲与真实个人播放权值
   const totalTrackWeight = topTracks.reduce((acc, _, idx) => acc + (50 - idx), 0) || 1;
   const processedTracks = topTracks.map((track, idx) => {
     const originalRank = idx + 1;
@@ -266,6 +204,7 @@ export default function App() {
 
   const maxTrackWeight = processedTracks[0]?.weight || 50;
 
+  // 2. 处理歌手与真实个人播放权值
   const processedArtists = topArtists.map((artist, idx) => {
     const originalRank = idx + 1;
     const pctNumber = Math.max((50 - idx) / 12.75, 0.1);
@@ -276,6 +215,7 @@ export default function App() {
     };
   });
 
+  // 3. 处理核心偏好流派分布
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -344,6 +284,7 @@ export default function App() {
       {/* Header */}
       {profile && (
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#333333]">
+          {/* 用户头像与二级菜单 */}
           <div className="relative" ref={userMenuRef}>
             <div 
               onClick={() => setShowUserMenu(!showUserMenu)}
@@ -382,55 +323,33 @@ export default function App() {
             )}
           </div>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
-            {/* 极简模式选择器（仅保留：账号总体偏好 / 已点赞的歌曲） */}
-            <div className="flex items-center bg-[#181818] border border-[#333333] rounded-full p-1 text-xs text-gray-300">
-              <button
-                onClick={() => setViewMode('ALL')}
-                className={`px-3 py-1.5 rounded-full font-semibold transition ${
-                  viewMode === 'ALL' ? 'bg-[#1DB954] text-black shadow-md' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                🌐 账号总体偏好
-              </button>
-              <button
-                onClick={() => setViewMode('LIKED')}
-                className={`px-3 py-1.5 rounded-full font-semibold transition ${
-                  viewMode === 'LIKED' ? 'bg-[#1DB954] text-black shadow-md' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                ❤️ 已点赞的歌曲
-              </button>
+          {/* 时间分段选择器与 GitHub Logo */}
+          <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-end">
+            <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333]">
+              {[
+                { key: 'short_term', label: '近 4 周' },
+                { key: 'medium_term', label: '近 6 个月' },
+                { key: 'long_term', label: '近 1 年' }
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setTimeRange(item.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                    timeRange === item.key 
+                      ? 'bg-[#1DB954] text-black shadow-md shadow-[#1DB954]/20' 
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
-
-            {/* 仅在【账号总体偏好】模式下显示时间切片 */}
-            {viewMode === 'ALL' && (
-              <div className="flex items-center bg-[#181818] p-1 rounded-full border border-[#333333]">
-                {[
-                  { key: 'short_term', label: '近 4 周' },
-                  { key: 'medium_term', label: '近 6 个月' },
-                  { key: 'long_term', label: '近 1 年' }
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => setTimeRange(item.key)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
-                      timeRange === item.key 
-                        ? 'bg-[#1DB954] text-black shadow-md shadow-[#1DB954]/20' 
-                        : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
 
             <a
               href="https://github.com/anon-desu/spotify-stats"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2.5 bg-[#181818] hover:bg-[#222222] border border-[#333333] text-gray-300 hover:text-white rounded-full transition-all duration-200 flex items-center justify-center shadow-md hover:scale-105 shrink-0 ml-auto sm:ml-0"
+              className="p-2.5 bg-[#181818] hover:bg-[#222222] border border-[#333333] text-gray-300 hover:text-white rounded-full transition-all duration-200 flex items-center justify-center shadow-md hover:scale-105 shrink-0"
               title="GitHub 源代码"
             >
               <Github size={18} />
@@ -443,9 +362,7 @@ export default function App() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 my-6">
         <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors shadow-lg">
           <div>
-            <p className="text-gray-400 text-xs font-medium">
-              {viewMode === 'ALL' ? '精选热听曲目' : '已点赞曲目总数'}
-            </p>
+            <p className="text-gray-400 text-xs font-medium">精选热听曲目</p>
             <p className="text-2xl font-black text-white mt-1 font-mono tracking-tight">{topTracks.length} <span className="text-sm font-normal text-gray-400">首</span></p>
           </div>
           <div className="p-3 bg-[#1DB954]/10 rounded-xl text-[#1DB954] border border-[#1DB954]/20">
@@ -516,7 +433,7 @@ export default function App() {
               )}
             </button>
           )}
-        </div>
+          </div>
       </div>
 
       {/* 明细区 */}
