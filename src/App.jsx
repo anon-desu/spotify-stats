@@ -126,6 +126,7 @@ export default function App() {
   const [topArtists, setTopArtists] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState('ALL');
+  const [playlistForbidden, setPlaylistForbidden] = useState(false);
 
   const [timeRange, setTimeRange] = useState('medium_term');
   const [loading, setLoading] = useState(false);
@@ -183,6 +184,7 @@ export default function App() {
     if (!token) return;
     async function loadData() {
       setLoading(true);
+      setPlaylistForbidden(false);
       try {
         if (selectedPlaylist === 'ALL') {
           const [tracksData, artistsData] = await Promise.all([
@@ -192,17 +194,19 @@ export default function App() {
           setTopTracks(tracksData?.items || []);
           setTopArtists(artistsData?.items || []);
         } else {
-          // 深度容错解析歌单曲目
           const playlistTracksData = await fetchPlaylistTracks(token, selectedPlaylist);
-          const rawItems = playlistTracksData?.items || playlistTracksData?.tracks?.items || [];
           
-          const extractedTracks = rawItems
-            .map(item => item.track || item)
-            .filter(t => t && t.name);
-            
+          if (playlistTracksData?.error === 'FORBIDDEN') {
+            setPlaylistForbidden(true);
+            setTopTracks([]);
+            setTopArtists([]);
+            return;
+          }
+
+          const rawItems = playlistTracksData?.items || playlistTracksData?.tracks?.items || [];
+          const extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
           setTopTracks(extractedTracks);
 
-          // 提取歌手
           const artistMap = {};
           extractedTracks.forEach(t => {
             t.artists?.forEach(a => {
@@ -323,9 +327,6 @@ export default function App() {
     (a.name || '').toLowerCase().includes(artistSearch.toLowerCase())
   );
 
-  const currentSelectedPlaylistObj = playlists.find(p => p.id === selectedPlaylist);
-  const isSelectedOfficial = currentSelectedPlaylistObj && profile && currentSelectedPlaylistObj.owner?.id !== profile.id;
-
   if (!token) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#121212] text-white p-6 text-center">
@@ -350,7 +351,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#121212] text-white p-4 md:p-8 max-w-6xl mx-auto pb-16 selection:bg-[#1DB954] selection:text-black">
-      {/* 1. 顶部 Header */}
+      {/* Header */}
       {profile && (
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#333333]">
           <div className="relative" ref={userMenuRef}>
@@ -446,18 +447,17 @@ export default function App() {
         </header>
       )}
 
-      {selectedPlaylist !== 'ALL' && isSelectedOfficial && topTracks.length === 0 && !loading && (
-        <div className="my-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-300">
-          <div className="flex items-center space-x-2">
-            <ShieldAlert size={20} className="shrink-0 text-amber-400" />
-            <span>
-              <strong>Spotify 官方 API 限制通知：</strong>由于你的应用处于未审核开发模式，Spotify 官方禁止 API 读取公共/官方编辑歌单。请在下拉菜单中切换为你<strong>自己创建的歌单 (`👤 个人歌单`)</strong> 即可完美显示！
-            </span>
-          </div>
+      {/* 403 权限保护优雅提示，绝不强制注销用户 */}
+      {playlistForbidden && (
+        <div className="my-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center space-x-3 text-xs text-amber-300">
+          <ShieldAlert size={20} className="shrink-0 text-amber-400" />
+          <span>
+            <strong>该歌单受 Spotify 限制无法读取：</strong>由于应用处于未审核开发模式，Spotify 禁止 API 读取官方公共歌单。请在顶部下拉框中切回 <strong>🌐 账号总体偏好</strong> 或选择你 <strong>个人创建的歌单 (`👤 个人`)</strong>！
+          </span>
         </div>
       )}
 
-      {/* 2. 核心 KPI 概览区 */}
+      {/* KPI 卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 my-6">
         <div className="bg-[#181818] border border-[#333333] p-5 rounded-2xl flex items-center justify-between hover:border-[#1DB954]/40 transition-colors shadow-lg">
           <div>
@@ -482,7 +482,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 3. 图表分析区 */}
+      {/* 图表区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
         <GenreDonutChart data={genreDonutData} primaryGenre={sortedGenres[0]?.label || 'J-Pop'} />
 
@@ -537,7 +537,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 4. 榜单明细区 */}
+      {/* 明细区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl shadow-xl">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
@@ -646,4 +646,4 @@ export default function App() {
       </div>
     </div>
   );
-                    }
+      }
