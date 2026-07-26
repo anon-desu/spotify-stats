@@ -1,6 +1,6 @@
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 
-// 安全获取重定向地址（防止 Cloudflare 构建阶段找不到 window 对象而报错）
+// 安全获取重定向地址（防止打包阶段访问 window 报错）
 const getRedirectUri = () => {
   if (typeof window !== 'undefined') {
     return window.location.origin;
@@ -102,4 +102,13 @@ export async function fetchArtistsByIds(token, artistIds) {
   const res = await fetch(`https://api.spotify.com/v1/artists?ids=${idsParam}`, { headers: { Authorization: `Bearer ${token}` } });
   if (handleTokenExpiration(res)) return { artists: [] };
   return res.json();
-    }
+}
+
+// 防崩溃兼容导出（防止旧版 App.jsx 找不到导出而编译报错）
+export async function fetchUserPlaylists() {
+  return { items: [] };
+}
+
+export async function fetchPlaylistTracks() {
+  return { items: [] };
+}
