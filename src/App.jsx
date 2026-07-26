@@ -11,7 +11,6 @@ import {
 } from './spotify';
 import { Music, Mic, LogOut, Sparkles, Heart, Search, ChevronDown, ChevronUp, PieChart as PieIcon, RefreshCw, Github, User, ListMusic, ShieldAlert } from 'lucide-react';
 
-// 1. 流派分布圆环图组件
 function GenreDonutChart({ data, primaryGenre }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
 
@@ -163,7 +162,6 @@ export default function App() {
     }
   }, [token]);
 
-  // 1. 初始化用户信息与歌单
   useEffect(() => {
     if (!token) return;
     async function initUser() {
@@ -181,14 +179,12 @@ export default function App() {
     initUser();
   }, [token]);
 
-  // 2. 根据选中的模式加载数据
   useEffect(() => {
     if (!token) return;
     async function loadData() {
       setLoading(true);
       try {
         if (selectedPlaylist === 'ALL') {
-          // 全账号总体偏好
           const [tracksData, artistsData] = await Promise.all([
             fetchTopTracks(token, timeRange),
             fetchTopArtists(token, timeRange)
@@ -196,14 +192,17 @@ export default function App() {
           setTopTracks(tracksData?.items || []);
           setTopArtists(artistsData?.items || []);
         } else {
-          // 歌单切片分析模式
+          // 深度容错解析歌单曲目
           const playlistTracksData = await fetchPlaylistTracks(token, selectedPlaylist);
-          const rawItems = playlistTracksData?.items || [];
+          const rawItems = playlistTracksData?.items || playlistTracksData?.tracks?.items || [];
           
-          const extractedTracks = rawItems.map(item => item.track || item).filter(t => t && t.name);
+          const extractedTracks = rawItems
+            .map(item => item.track || item)
+            .filter(t => t && t.name);
+            
           setTopTracks(extractedTracks);
 
-          // 收集歌手
+          // 提取歌手
           const artistMap = {};
           extractedTracks.forEach(t => {
             t.artists?.forEach(a => {
@@ -257,7 +256,6 @@ export default function App() {
     redirectToAuthCodeFlow();
   };
 
-  // 处理歌曲与绝对固定排名
   const totalTrackWeight = topTracks.reduce((acc, _, idx) => acc + (50 - idx), 0) || 1;
   const processedTracks = topTracks.map((track, idx) => {
     const originalRank = idx + 1;
@@ -274,7 +272,6 @@ export default function App() {
 
   const maxTrackWeight = processedTracks[0]?.weight || 50;
 
-  // 处理歌手与绝对固定排名
   const processedArtists = topArtists.map((artist, idx) => {
     const originalRank = idx + 1;
     const pctNumber = Math.max((50 - idx) / 12.75, 0.1);
@@ -285,7 +282,6 @@ export default function App() {
     };
   });
 
-  // 处理流派分布数据
   const genreCounts = {};
   topArtists.forEach(artist => {
     artist.genres?.forEach(g => {
@@ -318,7 +314,6 @@ export default function App() {
     }] : [])
   ];
 
-  // 过滤搜索
   const filteredTracks = processedTracks.filter(t => 
     (t.name || '').toLowerCase().includes(trackSearch.toLowerCase()) ||
     t.artists?.some(a => (a.name || '').toLowerCase().includes(trackSearch.toLowerCase()))
@@ -397,7 +392,6 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
-            {/* 智能标记：区分个人创建与官方公共歌单 */}
             <div className="flex items-center bg-[#181818] border border-[#333333] rounded-full px-3 py-1.5 text-xs text-gray-300">
               <ListMusic size={14} className="text-[#1DB954] mr-1.5 shrink-0" />
               <select
@@ -452,13 +446,12 @@ export default function App() {
         </header>
       )}
 
-      {/* 针对 Spotify 开发模式对官方公共歌单限制的明确友情提示 */}
       {selectedPlaylist !== 'ALL' && isSelectedOfficial && topTracks.length === 0 && !loading && (
         <div className="my-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-300">
           <div className="flex items-center space-x-2">
             <ShieldAlert size={20} className="shrink-0 text-amber-400" />
             <span>
-              <strong>Spotify 官方 API 限制通知：</strong>由于你的应用处于未审核开发模式，Spotify 官方禁止 API 读取公共/官方编辑歌单（如《日本流行》）。请在下拉菜单中切换为你<strong>自己创建的歌单 (`👤 个人歌单`)</strong> 即可完美显示！
+              <strong>Spotify 官方 API 限制通知：</strong>由于你的应用处于未审核开发模式，Spotify 官方禁止 API 读取公共/官方编辑歌单。请在下拉菜单中切换为你<strong>自己创建的歌单 (`👤 个人歌单`)</strong> 即可完美显示！
             </span>
           </div>
         </div>
@@ -493,7 +486,6 @@ export default function App() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-start">
         <GenreDonutChart data={genreDonutData} primaryGenre={sortedGenres[0]?.label || 'J-Pop'} />
 
-        {/* Top 5 水平进度条 */}
         <div className="bg-[#181818] border border-[#333333] p-6 rounded-2xl flex flex-col justify-between shadow-xl w-full h-full min-h-[360px]">
           <div>
             <div className="flex items-center justify-between mb-5">
@@ -654,4 +646,4 @@ export default function App() {
       </div>
     </div>
   );
-}
+                    }
