@@ -407,7 +407,7 @@ export default function App() {
         <Info size={18} className="text-[#1DB954] shrink-0 mt-0.5" />
         <div className="leading-relaxed">
           <span className="text-gray-200 font-bold mr-1">数据真实性说明：</span>
-          本看板所有歌曲与歌手的<strong className="text-[#1DB954] font-semibold">排名顺序 100% 真实准确</strong>，直接来自 Spotify 官方根据你个人账号听歌频率的计算。按个人喜好真实展现，不附带虚假播放数值。
+          本看板所有歌曲与歌手的<strong className="text-[#1DB954] font-semibold">排名顺序 100% 真实准确</strong>，直接由 Spotify 官方根据你个人账号的实际听歌频次生成。因 Spotify API 隐私规范不公开具体单曲播放次数，右侧百分比采用听歌偏好衰减模型归一化计算，以呈现更真实自然的视觉对比。
         </div>
       </div>
 
