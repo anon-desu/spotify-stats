@@ -27,6 +27,14 @@ import {
   RefreshCw
 } from 'lucide-react';
 
+// 安全获取封面/头像图片 URL（避免数组可选链语法错误并支持多分辨率回退）
+function getImageUrl(images, preferSmall = false) {
+  if (!images || !images.length) return null;
+  if (preferSmall && images.length >= 3) return images?.url || images[0]?.url;
+  if (images.length >= 2) return images?.url || images[0]?.url;
+  return images[0]?.url || null;
+}
+
 // 格式化歌曲时长 (毫秒 -> mm:ss)
 function formatDuration(ms) {
   if (!ms) return '0:00';
@@ -347,8 +355,8 @@ export default function App() {
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center space-x-3 bg-[#181818] hover:bg-[#202020] border border-[#2a2a2a] px-3.5 py-1.5 rounded-full cursor-pointer transition shadow-md select-none group"
             >
-              {profile.images?.[0]?.url ? (
-                <img src={profile.images[0].url} alt="" className="w-8 h-8 rounded-full border border-[#1DB954] object-cover" />
+              {getImageUrl(profile.images) ? (
+                <img src={getImageUrl(profile.images)} alt="" className="w-8 h-8 rounded-full border border-[#1DB954] object-cover" />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-[#1DB954]/20 border border-[#1DB954] flex items-center justify-center text-[#1DB954]">
                   <User size={16} />
@@ -427,7 +435,7 @@ export default function App() {
           <div className="flex items-center space-x-3.5 overflow-hidden">
             <div className="relative shrink-0">
               <img 
-                src={currentlyPlaying.item.album?.images?.?.url || currentlyPlaying.item.album?.images?.[0]?.url} 
+                src={getImageUrl(currentlyPlaying.item.album?.images, true)} 
                 alt="" 
                 className="w-12 h-12 rounded-xl object-cover shadow-md"
               />
@@ -560,7 +568,7 @@ export default function App() {
               <GenreDonutChart data={genreDonutData} primaryGenre={primaryGenre} />
             </div>
 
-            {/* 官方准确热度榜单（替换伪造权重条形图） */}
+            {/* 官方准确热度榜单 */}
             <div className="lg:col-span-2 bg-[#181818] border border-[#2a2a2a] p-6 rounded-2xl shadow-xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
@@ -577,7 +585,7 @@ export default function App() {
                       <div className="flex items-center space-x-2.5 overflow-hidden">
                         <span className="font-mono text-gray-500 font-bold w-4">{idx + 1}</span>
                         <img 
-                          src={track.album?.images?.?.url || track.album?.images?.[0]?.url} 
+                          src={getImageUrl(track.album?.images, true)} 
                           alt="" 
                           className="w-7 h-7 rounded object-cover shrink-0 bg-gray-800" 
                         />
@@ -633,7 +641,7 @@ export default function App() {
                       }`}>
                         {idx + 1}
                       </span>
-                      <img src={track.album?.images?.?.url || track.album?.images?.[0]?.url} alt="" className="w-10 h-10 rounded object-cover shrink-0 bg-gray-800" />
+                      <img src={getImageUrl(track.album?.images, true)} alt="" className="w-10 h-10 rounded object-cover shrink-0 bg-gray-800" />
                       <div className="truncate">
                         <p className="font-semibold text-xs text-gray-100 truncate group-hover:text-[#1DB954] transition">{track.name}</p>
                         <p className="text-[11px] text-gray-400 truncate mt-0.5">{track.artists?.map(a => a.name).join(', ')}</p>
@@ -684,7 +692,7 @@ export default function App() {
 
               <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
                 {filteredArtists.map((artist, idx) => {
-                  const imgUrl = artist.images?.?.url || artist.images?.[0]?.url;
+                  const imgUrl = getImageUrl(artist.images, true);
                   return (
                     <div key={artist.id} className="flex items-center justify-between bg-[#121212] hover:bg-[#1f1f1f] p-3 rounded-xl border border-[#242424] transition group">
                       <div className="flex items-center space-x-3 overflow-hidden">
@@ -746,7 +754,7 @@ export default function App() {
                 <div key={`${track.id}-${item.played_at}-${idx}`} className="flex items-center justify-between bg-[#121212] hover:bg-[#1f1f1f] p-3.5 rounded-xl border border-[#242424] transition">
                   <div className="flex items-center space-x-3.5 overflow-hidden">
                     <img 
-                      src={track.album?.images?.?.url || track.album?.images?.[0]?.url} 
+                      src={getImageUrl(track.album?.images, true)} 
                       alt="" 
                       className="w-10 h-10 rounded-lg object-cover shrink-0 bg-gray-800" 
                     />
