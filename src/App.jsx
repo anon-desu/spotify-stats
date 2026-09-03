@@ -1,3 +1,4 @@
+import './index.css';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   redirectToAuthCodeFlow, 
@@ -22,12 +23,11 @@ import {
   Clock, 
   Radio, 
   ExternalLink, 
-  Flame, 
   Disc,
   RefreshCw
 } from 'lucide-react';
 
-// 安全获取封面/头像图片 URL（避免数组可选链语法错误并支持多分辨率回退）
+// 安全获取封面/头像图片 URL
 function getImageUrl(images, preferSmall = false) {
   if (!images || !images.length) return null;
   if (preferSmall && images.length >= 3) return images?.url || images[0]?.url;
@@ -70,8 +70,8 @@ function GenreDonutChart({ data, primaryGenre }) {
   const activeItem = hoveredIdx !== null ? data[hoveredIdx] : null;
 
   return (
-    <div className="bg-[#181818] border border-[#2a2a2a] p-6 rounded-2xl flex flex-col items-center shadow-xl w-full">
-      <div className="flex items-center justify-between w-full mb-2">
+    <div className="bg-[#181818] border border-[#2a2a2a] p-6 rounded-2xl shadow-xl w-full">
+      <div className="flex items-center justify-between w-full mb-4">
         <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
           <PieIcon size={16} className="text-[#1DB954]" />
           <span>核心流派偏好分布</span>
@@ -79,83 +79,87 @@ function GenreDonutChart({ data, primaryGenre }) {
         <span className="text-[11px] text-gray-400 font-mono">Top 歌手流派统计</span>
       </div>
 
-      <div className="relative w-44 h-44 flex items-center justify-center my-3">
-        <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 overflow-visible">
-          <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#222222" strokeWidth="10" />
+      <div className="flex flex-col sm:flex-row items-center justify-around gap-6">
+        {/* 圆环图 */}
+        <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90 overflow-visible">
+            <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#222222" strokeWidth="10" />
+            {data.map((item, idx) => {
+              const pct = item.value / total;
+              const strokeDasharray = `${pct * circumference} ${circumference}`;
+              const strokeDashoffset = -currentAngle;
+              currentAngle += pct * circumference;
+              const isHovered = hoveredIdx === idx;
+
+              return (
+                <circle
+                  key={item.label}
+                  cx="50"
+                  cy="50"
+                  r={radius}
+                  fill="transparent"
+                  stroke={item.color}
+                  strokeWidth={isHovered ? "13" : "9"}
+                  strokeDasharray={strokeDasharray}
+                  strokeDashoffset={strokeDashoffset}
+                  style={{
+                    opacity: hoveredIdx === null || isHovered ? 1 : 0.3,
+                    cursor: 'pointer',
+                    transition: 'all 0.25s ease'
+                  }}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                  onClick={() => setHoveredIdx(hoveredIdx === idx ? null : idx)}
+                />
+              );
+            })}
+          </svg>
+
+          <div 
+            onClick={() => setHoveredIdx(null)}
+            className="absolute inset-6 rounded-full flex flex-col items-center justify-center text-center px-2 cursor-pointer select-none"
+          >
+            {activeItem ? (
+              <>
+                <span className="text-[11px] text-[#1DB954] font-bold truncate max-w-[100px]">{activeItem.label}</span>
+                <span className="text-base font-extrabold text-white mt-0.5 font-mono">
+                  {((activeItem.value / total) * 100).toFixed(1)}%
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider">主要流派</span>
+                <span className="text-xs font-extrabold text-[#1DB954] mt-0.5 truncate max-w-[100px]">{primaryGenre}</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 详细流派列表 */}
+        <div className="w-full sm:w-1/2 space-y-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
           {data.map((item, idx) => {
-            const pct = item.value / total;
-            const strokeDasharray = `${pct * circumference} ${circumference}`;
-            const strokeDashoffset = -currentAngle;
-            currentAngle += pct * circumference;
+            const pct = ((item.value / total) * 100).toFixed(1);
             const isHovered = hoveredIdx === idx;
 
             return (
-              <circle
+              <div 
                 key={item.label}
-                cx="50"
-                cy="50"
-                r={radius}
-                fill="transparent"
-                stroke={item.color}
-                strokeWidth={isHovered ? "13" : "9"}
-                strokeDasharray={strokeDasharray}
-                strokeDashoffset={strokeDashoffset}
-                style={{
-                  opacity: hoveredIdx === null || isHovered ? 1 : 0.3,
-                  cursor: 'pointer',
-                  transition: 'all 0.25s ease'
-                }}
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}
                 onClick={() => setHoveredIdx(hoveredIdx === idx ? null : idx)}
-              />
+                className={`flex items-center justify-between text-xs p-2 rounded-lg transition cursor-pointer ${
+                  isHovered ? 'bg-[#262626] font-bold text-white' : 'hover:bg-[#222222] text-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5 truncate">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="truncate">{item.label}</span>
+                </div>
+                <span className="font-mono font-bold text-[#1DB954] ml-2">{pct}%</span>
+              </div>
             );
           })}
-        </svg>
-
-        <div 
-          onClick={() => setHoveredIdx(null)}
-          className="absolute inset-6 rounded-full flex flex-col items-center justify-center text-center px-2 cursor-pointer select-none"
-        >
-          {activeItem ? (
-            <>
-              <span className="text-[11px] text-[#1DB954] font-bold truncate max-w-[100px]">{activeItem.label}</span>
-              <span className="text-base font-extrabold text-white mt-0.5 font-mono">
-                {((activeItem.value / total) * 100).toFixed(1)}%
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider">主要流派</span>
-              <span className="text-xs font-extrabold text-[#1DB954] mt-0.5 truncate max-w-[100px]">{primaryGenre}</span>
-            </>
-          )}
         </div>
-      </div>
-
-      <div className="w-full space-y-1.5 mt-2 pt-3 border-t border-[#282828] max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-        {data.map((item, idx) => {
-          const pct = ((item.value / total) * 100).toFixed(1);
-          const isHovered = hoveredIdx === idx;
-
-          return (
-            <div 
-              key={item.label}
-              onMouseEnter={() => setHoveredIdx(idx)}
-              onMouseLeave={() => setHoveredIdx(null)}
-              onClick={() => setHoveredIdx(hoveredIdx === idx ? null : idx)}
-              className={`flex items-center justify-between text-xs p-1.5 rounded-lg transition cursor-pointer ${
-                isHovered ? 'bg-[#262626] font-bold text-white' : 'hover:bg-[#222222] text-gray-300'
-              }`}
-            >
-              <div className="flex items-center space-x-2 truncate">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                <span className="truncate">{item.label}</span>
-              </div>
-              <span className="font-mono font-bold text-[#1DB954] ml-2">{pct}%</span>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -562,52 +566,9 @@ export default function App() {
         </div>
       ) : activeTab === 'ranking' ? (
         <>
-          {/* 流派偏好分析 */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 items-start">
-            <div className="lg:col-span-1">
-              <GenreDonutChart data={genreDonutData} primaryGenre={primaryGenre} />
-            </div>
-
-            {/* 官方准确热度榜单 */}
-            <div className="lg:col-span-2 bg-[#181818] border border-[#2a2a2a] p-6 rounded-2xl shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
-                  <Flame size={16} className="text-[#1DB954]" />
-                  <span>常听单曲官方热度指数 (Popularity)</span>
-                </h3>
-                <span className="text-[11px] text-gray-400 font-mono">官方指数 0–100</span>
-              </div>
-
-              <div className="space-y-3">
-                {topTracks.slice(0, 6).map((track, idx) => (
-                  <div key={track.id} className="space-y-1 group">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center space-x-2.5 overflow-hidden">
-                        <span className="font-mono text-gray-500 font-bold w-4">{idx + 1}</span>
-                        <img 
-                          src={getImageUrl(track.album?.images, true)} 
-                          alt="" 
-                          className="w-7 h-7 rounded object-cover shrink-0 bg-gray-800" 
-                        />
-                        <span className="font-semibold text-gray-200 truncate max-w-[200px] sm:max-w-[320px]">
-                          {track.name}
-                        </span>
-                        <span className="text-gray-500 text-[11px] truncate hidden sm:inline">
-                          · {track.artists?.map(a => a.name).join(', ')}
-                        </span>
-                      </div>
-                      <span className="font-mono font-bold text-[#1DB954]">{track.popularity}/100</span>
-                    </div>
-                    <div className="w-full bg-[#242424] h-1.5 rounded-full overflow-hidden">
-                      <div 
-                        className="bg-gradient-to-r from-[#1DB954] to-emerald-400 h-full rounded-full transition-all duration-500 group-hover:brightness-125"
-                        style={{ width: `${track.popularity || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* 核心流派偏好分析（通栏宽卡片） */}
+          <div className="mb-8">
+            <GenreDonutChart data={genreDonutData} primaryGenre={primaryGenre} />
           </div>
 
           {/* 歌曲与歌手双栏明细 */}
@@ -630,7 +591,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+              <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
                 {filteredTracks.map((track, idx) => (
                   <div key={track.id} className="flex items-center justify-between bg-[#121212] hover:bg-[#1f1f1f] p-3 rounded-xl border border-[#242424] transition group">
                     <div className="flex items-center space-x-3 overflow-hidden">
@@ -690,7 +651,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+              <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1 custom-scrollbar">
                 {filteredArtists.map((artist, idx) => {
                   const imgUrl = getImageUrl(artist.images, true);
                   return (
